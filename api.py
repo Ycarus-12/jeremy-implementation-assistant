@@ -1,1390 +1,322 @@
-# app.py v3 — Posit Cloud Implementation Assistant
-# v3 fixes:
-#   - Remove exchange count from sidebar
-#   - Remove version number from top bar
-#   - Sidebar shows upcoming/overdue tasks (name + due date only), Monday-ready
-#   - Expandable sidebar task section
-#   - Transparency notice renders as single container
-#   - Topic-aware escalation (not count-based), user-prompted not auto
-#   - Escalation tab renders immediately on trigger, supports multiple escalations
-#   - Rephrased handoff fields: "Goal:", "What was being discussed:"
-#   - Scope dismissal never sets escalation flag
+# api.py v3
+# Anthropic API calls, topic-aware escalation, summary generation.
+# v3: topic-aware escalation tracking, rephrased handoff fields,
+#     scope dismissal never sets escalation flag.
 
-from shiny import App, reactive, render, ui
-from datetime import datetime, date
-import re
+import os
+import httpx
+from datetime import datetime
 
-from api import (
-    call_claude,
-    generate_handoff_summary,
-    generate_session_summary,
-    detect_role,
-    check_scope_question,
-    check_session_end_intent,
-    check_unresolved_response,
-    check_resolution_signal,
-    check_explicit_escalation,
-    TopicEscalationTracker,
-)
-from system_prompt import build_system_prompt
-from knowledge_base import get_sidebar_tasks
+API_URL = "https://api.anthropic.com/v1/messages"
+MODEL   = "claude-sonnet-4-20250514"
 
-# ===========================================================================
-# STYLES
-# ===========================================================================
-CSS = """
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-    font-family: 'IBM Plex Sans', sans-serif;
-    background: #F4F6F9;
-    color: #1C2333;
-    font-size: 14px;
-    height: 100vh;
-    overflow: hidden;
-}
-
-.app-shell {
-    display: grid;
-    grid-template-columns: 230px 1fr 300px;
-    grid-template-rows: 52px 1fr;
-    height: 100vh;
-    overflow: hidden;
-}
-
-/* ---- Top bar ---- */
-.top-bar {
-    grid-column: 1 / -1;
-    background: #1C2333;
-    color: white;
-    display: flex;
-    align-items: center;
-    padding: 0 1.25rem;
-    gap: 1rem;
-    border-bottom: 2px solid #447099;
-}
-.top-bar-logo { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #447099; }
-.top-bar-title { font-size: 0.9rem; font-weight: 500; color: #E8EDF5; }
-.top-bar-sub { font-size: 0.72rem; color: #6B7A99; margin-left: 0.5rem; }
-.top-bar-badge {
-    margin-left: auto;
-    background: rgba(68,112,153,0.2);
-    color: #447099;
-    border: 1px solid rgba(68,112,153,0.35);
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-size: 0.65rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-/* ---- Left sidebar ---- */
-.left-sidebar {
-    background: #FFFFFF;
-    border-right: 1px solid #E2E6EF;
-    padding: 1.1rem;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-}
-.sidebar-label {
-    font-size: 0.6rem;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #9BA8BF;
-    margin-top: 1rem;
-    margin-bottom: 0.35rem;
-}
-.sidebar-label:first-child { margin-top: 0; }
-
-.status-chip {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 2px 8px; border-radius: 20px;
-    font-size: 0.68rem; font-weight: 600;
-}
-.chip-waiting   { background: #EEF2FF; color: #4361EE; }
-.chip-active    { background: #E8F5E9; color: #2E7D32; }
-.chip-ended     { background: #FFF3E0; color: #E65100; }
-.chip-escalated { background: #FFF0F0; color: #C62828; }
-
-.escalation-banner {
-    background: #FFF8E1; border: 1px solid #FFD54F;
-    border-radius: 6px; padding: 0.5rem 0.6rem;
-    font-size: 0.72rem; color: #5D4037; line-height: 1.4;
-}
-
-.sidebar-divider { border: none; border-top: 1px solid #E2E6EF; margin: 0.75rem 0; }
-
-.end-btn {
-    width: 100%;
-    background: #FFF0F0 !important; color: #C62828 !important;
-    border: 1px solid #FFCDD2 !important; border-radius: 6px !important;
-    font-size: 0.75rem !important; font-weight: 600 !important;
-    padding: 0.45rem !important; cursor: pointer;
-    font-family: inherit !important; transition: background 0.15s;
-}
-.end-btn:hover { background: #FFEBEE !important; }
-.end-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.meta-block { font-size: 0.72rem; color: #6B7A99; line-height: 1.7; }
-
-/* ---- Task sections in sidebar ---- */
-.task-section { margin-top: 0.25rem; }
-
-.task-section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: pointer;
-    user-select: none;
-    padding: 0.3rem 0;
-    border-radius: 4px;
-}
-.task-section-header:hover { background: #F4F6F9; }
-
-.task-section-title {
-    font-size: 0.6rem;
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-}
-.task-title-overdue  { color: #C62828; }
-.task-title-upcoming { color: #447099; }
-
-.task-toggle-icon { font-size: 0.6rem; color: #9BA8BF; transition: transform 0.15s; }
-.task-toggle-icon.collapsed { transform: rotate(-90deg); }
-
-.task-list { margin-top: 0.2rem; }
-.task-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    padding: 0.25rem 0.3rem;
-    border-radius: 4px;
-    font-size: 0.71rem;
-    line-height: 1.4;
-    gap: 0.4rem;
-}
-.task-item:hover { background: #F4F6F9; }
-.task-item-name  { color: #2D3A52; flex: 1; }
-.task-item-due   { font-size: 0.67rem; white-space: nowrap; flex-shrink: 0; font-weight: 500; }
-.task-item-due-overdue  { color: #C62828; }
-.task-item-due-upcoming { color: #447099; }
-
-.task-empty { font-size: 0.7rem; color: #9BA8BF; font-style: italic; padding: 0.2rem 0.3rem; }
-
-.expand-hint {
-    font-size: 0.62rem;
-    color: #9BA8BF;
-    font-style: italic;
-    margin-top: 0.15rem;
-}
-
-/* ---- Chat panel ---- */
-.chat-panel {
-    display: flex; flex-direction: column;
-    background: #F4F6F9; overflow: hidden; min-height: 0;
-}
-.chat-window {
-    flex: 1; overflow-y: auto;
-    padding: 1.25rem;
-    display: flex; flex-direction: column; gap: 1rem;
-    scroll-behavior: smooth; min-height: 0;
-}
-
-/* ---- Message bubbles ---- */
-.msg-row { display: flex; align-items: flex-start; gap: 0.6rem; max-width: 100%; }
-.msg-row.user { flex-direction: row-reverse; }
-
-.avatar {
-    width: 30px; height: 30px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.6rem; font-weight: 700;
-    flex-shrink: 0; margin-top: 2px;
-}
-.avatar-ai   { background: #1C2333; color: #447099; }
-.avatar-user { background: #E2E6EF; color: #6B7A99; }
-
-.bubble {
-    max-width: 76%; padding: 0.65rem 0.9rem;
-    border-radius: 12px; font-size: 0.845rem; line-height: 1.6;
-}
-.bubble-ai {
-    background: #FFFFFF; border: 1px solid #E2E6EF;
-    border-top-left-radius: 3px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-}
-.bubble-user { background: #1C2333; color: #E8EDF5; border-top-right-radius: 3px; }
-
-/* Transparency notice — SINGLE container */
-.transparency-notice {
-    background: #EEF4FA;
-    border-left: 3px solid #447099;
-    border-radius: 0 6px 6px 0;
-    padding: 0.6rem 0.85rem;
-    margin-bottom: 0.75rem;
-    font-size: 0.8rem;
-    color: #2D4A63;
-    line-height: 1.55;
-}
-
-/* Scope choice prompt */
-.scope-choice {
-    background: #FFF8E1; border: 1px solid #FFD54F;
-    border-radius: 8px; padding: 0.65rem 0.9rem; margin-top: 0.5rem;
-    font-size: 0.82rem;
-}
-.scope-choice-btns { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-.scope-btn {
-    padding: 0.3rem 0.85rem; border-radius: 5px;
-    font-size: 0.78rem; font-weight: 600;
-    cursor: pointer; border: none; font-family: inherit; transition: background 0.15s;
-}
-.scope-btn-escalate { background: #447099; color: white; }
-.scope-btn-escalate:hover { background: #355880; }
-.scope-btn-dismiss  { background: #E2E6EF; color: #4A5568; }
-.scope-btn-dismiss:hover { background: #CBD2E0; }
-
-/* Escalation suggestion prompt */
-.escalation-prompt {
-    background: #FFF3E0; border: 1px solid #FFB74D;
-    border-left: 3px solid #F57C00;
-    border-radius: 0 8px 8px 0; padding: 0.65rem 0.9rem; margin-top: 0.5rem;
-    font-size: 0.82rem; color: #3E2723; line-height: 1.5;
-}
-.escalation-prompt-btns { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-
-/* Source badge */
-.source-badge {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: 0.68rem; color: #6B7A99; margin-top: 0.4rem;
-    padding: 2px 6px; background: #F4F6F9;
-    border-radius: 4px; border: 1px solid #E2E6EF;
-}
-
-/* Feedback thumbs */
-.feedback-row { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.4rem; }
-.feedback-label { font-size: 0.68rem; color: #9BA8BF; }
-.thumb-btn {
-    background: none; border: 1px solid #E2E6EF;
-    border-radius: 4px; padding: 1px 6px;
-    font-size: 0.75rem; cursor: pointer; transition: all 0.1s; line-height: 1.4;
-}
-.thumb-btn:hover { background: #F4F6F9; border-color: #CBD2E0; }
-.thumb-btn.active-up   { background: #E8F5E9; border-color: #72994E; }
-.thumb-btn.active-down { background: #FFEBEE; border-color: #C62828; }
-
-.msg-ts { font-size: 0.65rem; color: #9BA8BF; margin-top: 3px; padding: 0 0.2rem; }
-.user .msg-ts { text-align: right; }
-
-/* Bubble content */
-.bubble p { margin: 0 0 0.5rem 0; }
-.bubble p:last-child { margin-bottom: 0; }
-.bubble ul, .bubble ol { margin: 0.3rem 0; padding-left: 1.3rem; }
-.bubble li { margin-bottom: 0.2rem; }
-.bubble code {
-    font-family: 'IBM Plex Mono', monospace; font-size: 0.8em;
-    background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 3px;
-}
-.bubble-user code { background: rgba(255,255,255,0.1); }
-.bubble strong { font-weight: 600; }
-.bubble hr { border: none; border-top: 1px solid rgba(0,0,0,0.08); margin: 0.5rem 0; }
-.bubble table { border-collapse: collapse; width: 100%; font-size: 0.8em; margin: 0.4rem 0; }
-.bubble th, .bubble td { border: 1px solid #dde; padding: 3px 8px; text-align: left; }
-.bubble th { background: #f0f4f8; font-weight: 600; }
-
-/* Empty state */
-.empty-state {
-    flex: 1; display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    color: #9BA8BF; font-size: 0.82rem; text-align: center;
-    gap: 0.5rem; padding: 2rem;
-}
-.empty-icon { font-size: 2rem; margin-bottom: 0.25rem; }
-
-/* Typing dots */
-.typing-dots { display: flex; gap: 4px; align-items: center; padding: 0.3rem 0; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: #447099; animation: pulse 1.2s infinite ease-in-out; }
-.dot:nth-child(2) { animation-delay: 0.2s; }
-.dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes pulse { 0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; } 40% { transform: scale(1.0); opacity: 1; } }
-
-/* ---- Input area ---- */
-.input-area { border-top: 1px solid #E2E6EF; background: #FFFFFF; padding: 0.85rem 1.1rem; flex-shrink: 0; }
-.input-row { display: flex; gap: 0.5rem; align-items: flex-end; }
-.input-row textarea {
-    flex: 1; border: 1px solid #CBD2E0; border-radius: 8px;
-    padding: 0.55rem 0.75rem; font-size: 0.845rem;
-    font-family: 'IBM Plex Sans', sans-serif; resize: none;
-    line-height: 1.5; min-height: 42px; max-height: 110px;
-    background: #F4F6F9; color: #1C2333; outline: none;
-    transition: border-color 0.15s, background 0.15s;
-}
-.input-row textarea:focus { border-color: #447099; background: #FFFFFF; }
-.input-row textarea::placeholder { color: #9BA8BF; }
-.send-btn {
-    background: #447099 !important; color: white !important;
-    border: none !important; border-radius: 8px !important;
-    padding: 0 1.1rem !important; height: 42px;
-    font-size: 0.845rem !important; font-weight: 600 !important;
-    font-family: 'IBM Plex Sans', sans-serif !important;
-    cursor: pointer; flex-shrink: 0; transition: background 0.15s; white-space: nowrap;
-}
-.send-btn:hover { background: #355880 !important; }
-.send-btn:disabled { background: #9BA8BF !important; cursor: not-allowed; }
-.input-hint { font-size: 0.65rem; color: #9BA8BF; margin-top: 0.4rem; }
-
-/* ---- Right panel ---- */
-.right-panel {
-    background: #FFFFFF; border-left: 1px solid #E2E6EF;
-    overflow-y: auto; display: flex; flex-direction: column;
-}
-.panel-tabs { display: flex; border-bottom: 1px solid #E2E6EF; flex-shrink: 0; }
-.tab-btn {
-    flex: 1; padding: 0.65rem 0.5rem;
-    font-size: 0.72rem; font-weight: 600;
-    font-family: 'IBM Plex Sans', sans-serif;
-    letter-spacing: 0.04em; text-transform: uppercase;
-    border: none; background: transparent; color: #9BA8BF;
-    cursor: pointer; border-bottom: 2px solid transparent;
-    transition: all 0.15s; margin-bottom: -1px;
-}
-.tab-btn.active { color: #447099; border-bottom-color: #447099; }
-.tab-btn:hover:not(.active) { color: #1C2333; }
-
-.tab-content { padding: 1rem; flex: 1; overflow-y: auto; }
-.tab-pane { display: none; }
-.tab-pane.active { display: block; }
-
-.panel-empty {
-    color: #9BA8BF; font-size: 0.78rem; text-align: center;
-    padding: 2rem 1rem; font-style: italic; line-height: 1.5;
-}
-
-/* PS Summary */
-.summary-header {
-    font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em;
-    text-transform: uppercase; color: #447099; margin-bottom: 0.75rem;
-    display: flex; align-items: center; justify-content: space-between;
-}
-.followup-block {
-    background: #FFF3E0; border: 1px solid #FFB74D;
-    border-left: 4px solid #F57C00; border-radius: 6px;
-    padding: 0.75rem; margin-bottom: 0.85rem;
-}
-.followup-label {
-    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.09em;
-    text-transform: uppercase; color: #E65100; margin-bottom: 0.35rem;
-}
-.followup-content { font-size: 0.78rem; color: #3E2723; line-height: 1.55; }
-
-.tags-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.75rem; }
-.topic-tag {
-    background: #EEF4FA; color: #355880;
-    border: 1px solid #C5D8EC; border-radius: 20px;
-    padding: 1px 8px; font-size: 0.67rem; font-weight: 600;
-}
-
-.summary-field { margin-bottom: 0.65rem; }
-.summary-field-label {
-    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: #9BA8BF; margin-bottom: 0.2rem;
-}
-.summary-field-value { font-size: 0.78rem; color: #1C2333; line-height: 1.55; }
-.outcome-resolved { color: #2E7D32; font-weight: 600; }
-.outcome-partial  { color: #E65100; font-weight: 600; }
-.outcome-escalated { color: #C62828; font-weight: 600; }
-.summary-divider { border: none; border-top: 1px solid #E2E6EF; margin: 0.65rem 0; }
-
-/* Escalation tab */
-.handoff-entry {
-    background: #FFFDF0; border: 1px solid #FFD54F;
-    border-radius: 6px; padding: 0.85rem; margin-bottom: 0.75rem;
-    font-size: 0.78rem; line-height: 1.65; color: #3D2B00; white-space: pre-wrap;
-}
-.handoff-entry-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 0.5rem;
-}
-.handoff-entry-num {
-    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: #E65100;
-}
-.panel-section-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.5rem; }
-.label-handoff { color: #E65100; }
-
-/* Copy buttons */
-.copy-btn {
-    background: none; border: 1px solid #E2E6EF; border-radius: 5px;
-    padding: 2px 8px; font-size: 0.67rem; font-weight: 600; color: #6B7A99;
-    cursor: pointer; font-family: inherit; transition: all 0.15s; white-space: nowrap;
-}
-.copy-btn:hover { background: #F4F6F9; border-color: #CBD2E0; color: #1C2333; }
-.copy-btn.copied { color: #2E7D32; border-color: #72994E; background: #E8F5E9; }
-
-/* Email format toggle */
-.email-toggle-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; margin-top: 0.25rem; }
-.email-toggle-label { font-size: 0.68rem; color: #6B7A99; }
-.format-toggle-btn {
-    background: none; border: 1px solid #E2E6EF; border-radius: 4px;
-    padding: 2px 8px; font-size: 0.67rem; font-weight: 600; color: #6B7A99;
-    cursor: pointer; font-family: inherit; transition: all 0.15s;
-}
-.format-toggle-btn.active { background: #EEF4FA; border-color: #447099; color: #447099; }
-
-/* Shiny overrides */
-.shiny-input-container { margin-bottom: 0 !important; }
-.form-control, .selectize-input { font-family: 'IBM Plex Sans', sans-serif !important; font-size: 0.8rem !important; border-color: #CBD2E0 !important; border-radius: 6px !important; }
-.selectize-input { padding: 5px 8px !important; }
-select.form-control { height: 34px !important; }
-
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #CBD2E0; border-radius: 10px; }
-"""
-
-JS = """
-// Enter to send
-document.addEventListener('keydown', function(e) {
-    if (e.target.id === 'user_input' && e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        document.getElementById('send_btn').click();
-    }
-});
-
-// Auto-scroll chat
-const chatObserver = new MutationObserver(() => {
-    const cw = document.querySelector('.chat-window');
-    if (cw) cw.scrollTop = cw.scrollHeight;
-});
-document.addEventListener('DOMContentLoaded', () => {
-    const cw = document.querySelector('.chat-window');
-    if (cw) chatObserver.observe(cw, { childList: true, subtree: true });
-});
-
-// Tab switching
-function switchTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
-    const btn  = document.querySelector('[data-tab="' + tab + '"]');
-    const pane = document.getElementById('pane-' + tab);
-    if (btn)  btn.classList.add('active');
-    if (pane) { pane.classList.add('active'); pane.style.display = 'block'; }
-}
-
-// Collapsible task sections
-function toggleTaskSection(sectionId) {
-    const list = document.getElementById(sectionId);
-    const icon = document.getElementById(sectionId + '-icon');
-    if (!list) return;
-    const collapsed = list.style.display === 'none';
-    list.style.display = collapsed ? 'block' : 'none';
-    if (icon) icon.classList.toggle('collapsed', !collapsed);
-}
-
-// Copy to clipboard
-function copyToClipboard(elementId, btnId) {
-    const el = document.getElementById(elementId);
-    if (!el) return;
-    navigator.clipboard.writeText(el.innerText || el.textContent).then(() => {
-        const btn = document.getElementById(btnId);
-        if (btn) {
-            const orig = btn.innerText;
-            btn.innerText = '✓ Copied';
-            btn.classList.add('copied');
-            setTimeout(() => { btn.innerText = orig; btn.classList.remove('copied'); }, 2000);
-        }
-    });
-}
-
-// Thumb feedback
-function sendFeedback(msgId, helpful) {
-    const upBtn   = document.getElementById('up-'   + msgId);
-    const downBtn = document.getElementById('down-' + msgId);
-    if (upBtn)   upBtn.classList.toggle('active-up',    helpful);
-    if (downBtn) downBtn.classList.toggle('active-down', !helpful);
-    if (window.Shiny) Shiny.setInputValue('feedback_event', { msg_id: msgId, helpful: helpful }, { priority: 'event' });
-}
-
-// Summary format toggle
-function toggleSummaryFormat(format) {
-    document.getElementById('summary-structured').style.display = format === 'structured' ? 'block' : 'none';
-    document.getElementById('summary-email').style.display      = format === 'email'      ? 'block' : 'none';
-    document.querySelectorAll('.format-toggle-btn').forEach(b => b.classList.remove('active'));
-    const btn = document.getElementById('fmt-' + format);
-    if (btn) btn.classList.add('active');
-}
-"""
-
-# ===========================================================================
-# UI
-# ===========================================================================
-ROLES = [
-    ("", "— Select your role —"),
-    ("IT Admin / Technical Lead",             "IT Admin / Technical Lead"),
-    ("Project Lead / Project Manager",        "Project Lead / Project Manager"),
-    ("Executive Sponsor / Research Director", "Executive Sponsor / Research Director"),
-    ("Researcher / End User",                 "Researcher / End User"),
-    ("UAT Tester",                            "UAT Tester"),
+# ---------------------------------------------------------------------------
+# Phrase lists
+# ---------------------------------------------------------------------------
+ESCALATION_PHRASES = [
+    "talk to someone", "speak to someone", "speak with meredith",
+    "contact meredith", "reach meredith", "call meredith",
+    "need help from", "need a human", "need a person",
+    "escalate", "ps team", "professional services",
+    "can someone help me", "i want to talk to",
 ]
 
-app_ui = ui.page_fixed(
-    ui.tags.head(
-        ui.tags.style(CSS),
-        ui.tags.script(JS),
-    ),
-    ui.div({"class": "app-shell"},
+RESOLUTION_PHRASES = [
+    "got it", "that works", "that helped", "makes sense",
+    "i understand", "i see", "thank you", "thanks", "perfect",
+    "that's what i needed", "all set", "i'm good", "solved",
+    "figured it out", "i'll try that", "makes sense now",
+    "move on", "let's move on", "next question", "never mind",
+    "forget it", "not important",
+]
 
-        # ---- TOP BAR (no version number) ----
-        ui.div({"class": "top-bar"},
-            ui.div({"class": "top-bar-logo"}, "Posit"),
-            ui.div({"class": "top-bar-title"}, "Cloud Implementation Assistant"),
-            ui.div({"class": "top-bar-sub"}, "State University Research Computing"),
-            ui.div({"class": "top-bar-badge"}, "MVP Pilot"),
-        ),
+SESSION_END_PHRASES = [
+    "end this session", "end the session", "close this session",
+    "we're done", "that's all", "that's it for now", "i'm done",
+    "wrap up", "wrap this up", "let's stop here", "stop here",
+    "finish the session", "conclude the session", "goodbye",
+    "we can end", "end our session", "let's go ahead and end",
+    "go ahead and end", "done for today", "done for now",
+]
 
-        # ---- LEFT SIDEBAR ----
-        ui.div({"class": "left-sidebar"},
-            ui.div({"class": "sidebar-label"}, "Your Name"),
-            ui.input_text("customer_name", None, placeholder="Enter your name"),
+SCOPE_SIGNALS = [
+    "can we add", "can you add", "is it possible to add", "add to scope",
+    "also need", "what about adding", "we also want",
+    "not in scope", "out of scope", "in scope", "scope question",
+    "hpc", "hipaa", "package mirror", "workbench", "posit connect",
+    "data warehouse", "on-prem", "on premises", "hybrid",
+]
 
-            ui.div({"class": "sidebar-label"}, "Your Role"),
-            ui.input_select("customer_role", None,
-                choices={v: l for v, l in ROLES}, selected=""),
-
-            ui.div({"class": "sidebar-label"}, "Session Status"),
-            ui.output_ui("session_status_ui"),
-
-            ui.div({"class": "sidebar-label"}, "Escalation"),
-            ui.output_ui("escalation_ui"),
-
-            ui.tags.hr({"class": "sidebar-divider"}),
-            ui.input_action_button("end_session", "End Session", class_="end-btn"),
-            ui.tags.hr({"class": "sidebar-divider"}),
-
-            # Implementation meta
-            ui.div({"class": "sidebar-label"}, "Implementation"),
-            ui.div({"class": "meta-block"},
-                ui.tags.div("Customer: State Univ. RC"),
-                ui.tags.div("PS Lead: Meredith Callahan"),
-                ui.tags.div("Phase: 1 — Setup & Pilot"),
-            ),
-
-            # Task sections (collapsible, Monday-ready)
-            ui.output_ui("sidebar_tasks_ui"),
-        ),
-
-        # ---- MAIN CHAT PANEL ----
-        ui.div({"class": "chat-panel"},
-            ui.div({"class": "chat-window", "id": "chat_window"},
-                ui.output_ui("chat_messages_ui"),
-            ),
-            ui.div({"class": "input-area"},
-                ui.div({"class": "input-row"},
-                    ui.tags.textarea(
-                        {"id": "user_input",
-                         "placeholder": "Ask a question or describe what you are trying to do…",
-                         "rows": "2"},
-                    ),
-                    ui.input_action_button("send_btn", "Send", class_="send-btn"),
-                ),
-                ui.div({"class": "input-hint"},
-                    "Enter to send · Shift+Enter for new line · Session summaries are shared with your PS lead"
-                ),
-            ),
-        ),
-
-        # ---- RIGHT PANEL ----
-        ui.div({"class": "right-panel"},
-            ui.div({"class": "panel-tabs"},
-                ui.tags.button("PS Summary",
-                    {"class": "tab-btn active", "data-tab": "summary",
-                     "onclick": "switchTab('summary')"}),
-                ui.tags.button("Escalation",
-                    {"class": "tab-btn", "data-tab": "escalation",
-                     "onclick": "switchTab('escalation')"}),
-            ),
-            ui.div({"class": "tab-content"},
-                ui.div({"id": "pane-summary", "class": "tab-pane active", "style": "display:block"},
-                    ui.output_ui("summary_panel_ui")),
-                ui.div({"id": "pane-escalation", "class": "tab-pane", "style": "display:none"},
-                    ui.output_ui("escalation_panel_ui")),
-            ),
-        ),
-    ),
-)
+UNRESOLVED_SIGNALS = [
+    "i don't have that information",
+    "i don't have sufficient information",
+    "your ps lead can best address",
+    "meredith callahan can best address",
+    "i can't answer that",
+    "outside my knowledge",
+    "not in my knowledge base",
+    "i don't know",
+]
 
 
-# ===========================================================================
-# SERVER
-# ===========================================================================
-def server(input, output, session):
+def get_api_key() -> str:
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable is not set.")
+    return key
 
-    # ---- State ----
-    messages         = reactive.value([])
-    started          = reactive.value(False)
-    ended            = reactive.value(False)
-    start_ts         = reactive.value(None)
-    escalated        = reactive.value(False)
-    # List of handoff dicts: {"id": int, "text": str, "ts": str}
-    handoff_entries  = reactive.value([])
-    session_summary  = reactive.value("")
-    email_summary    = reactive.value("")
-    is_thinking      = reactive.value(False)
-    msg_count        = reactive.value(0)
-    feedback_log     = reactive.value([])
-    unresolved_log   = reactive.value([])
-    scope_pending    = reactive.value(False)
 
-    # Topic-aware escalation tracker (one instance per session)
-    tracker = TopicEscalationTracker()
-
-    # ---- Sidebar task section ----
-    @output
-    @render.ui
-    def sidebar_tasks_ui():
-        tasks = get_sidebar_tasks(today=date.today())
-        overdue  = tasks["overdue"]
-        upcoming = tasks["upcoming"]
-
-        children = []
-
-        # Overdue section
-        children.append(
-            ui.div({"class": "task-section"},
-                ui.div(
-                    {"class": "task-section-header",
-                     "onclick": "toggleTaskSection('task-list-overdue')"},
-                    ui.span({"class": "task-section-title task-title-overdue"},
-                        f"⚠ Overdue ({len(overdue)})"),
-                    ui.span({"class": "task-toggle-icon", "id": "task-list-overdue-icon"}, "▾"),
-                ),
-                ui.div({"id": "task-list-overdue", "class": "task-list"},
-                    *(
-                        ui.div({"class": "task-item"},
-                            ui.span({"class": "task-item-name"}, t["name"]),
-                            ui.span({"class": "task-item-due task-item-due-overdue"}, t["due"]),
-                        )
-                        for t in overdue
-                    ) if overdue else [ui.div({"class": "task-empty"}, "None")]
-                ),
-            )
-        )
-
-        # Upcoming section
-        children.append(
-            ui.div({"class": "task-section"},
-                ui.div(
-                    {"class": "task-section-header",
-                     "onclick": "toggleTaskSection('task-list-upcoming')"},
-                    ui.span({"class": "task-section-title task-title-upcoming"},
-                        f"📅 Coming Up ({len(upcoming)})"),
-                    ui.span({"class": "task-toggle-icon", "id": "task-list-upcoming-icon"}, "▾"),
-                ),
-                ui.div({"id": "task-list-upcoming", "class": "task-list"},
-                    *(
-                        ui.div({"class": "task-item"},
-                            ui.span({"class": "task-item-name"}, t["name"]),
-                            ui.span({"class": "task-item-due task-item-due-upcoming"}, t["due"]),
-                        )
-                        for t in upcoming
-                    ) if upcoming else [ui.div({"class": "task-empty"}, "None in next 14 days")]
-                ),
-                ui.div({"class": "expand-hint"}, "Click heading to collapse / expand"),
-            )
-        )
-
-        return ui.div(*children)
-
-    # ---- Session status ----
-    @output
-    @render.ui
-    def session_status_ui():
-        if not started():
-            return ui.span({"class": "status-chip chip-waiting"}, "● Waiting")
-        elif ended():
-            return ui.span({"class": "status-chip chip-ended"}, "● Ended")
-        elif escalated():
-            return ui.span({"class": "status-chip chip-escalated"}, "● Escalated")
-        else:
-            return ui.span({"class": "status-chip chip-active"}, "● Active")
-
-    # ---- Escalation status (no exchange count) ----
-    @output
-    @render.ui
-    def escalation_ui():
-        if not started():
-            return ui.div({"style": "font-size:0.72rem; color:#9BA8BF;"}, "No active session")
-        elif escalated():
-            return ui.div({"class": "escalation-banner"}, "⚠ Escalated to Meredith Callahan")
-        else:
-            return ui.div({"style": "font-size:0.72rem; color:#2E7D32;"},
-                "✓ No escalation triggered")
-
-    # ---- Chat messages ----
-    @output
-    @render.ui
-    def chat_messages_ui():
-        msgs    = messages()
-        thinking = is_thinking()
-
-        if not msgs and not thinking:
-            return ui.div({"class": "empty-state"},
-                ui.div({"class": "empty-icon"}, "💬"),
-                ui.div("Select your role and send your first message to begin."),
-            )
-
-        elements = []
-        for m in msgs:
-            is_user  = m["role"] == "user"
-            row_cls  = "msg-row user" if is_user else "msg-row"
-            bub_cls  = "bubble bubble-user" if is_user else "bubble bubble-ai"
-            av_cls   = "avatar avatar-user" if is_user else "avatar avatar-ai"
-            av_lbl   = "YOU" if is_user else "AI"
-            msg_id   = m.get("id", "")
-
-            html_content = format_message(m["content"])
-            bubble_inner = [ui.HTML(html_content)]
-
-            # Scope choice buttons
-            if m.get("scope_choice"):
-                bubble_inner.append(
-                    ui.div({"class": "scope-choice"},
-                        ui.div({"style": "font-weight:600; margin-bottom:0.3rem;"},
-                            "Would you like to escalate this to Meredith Callahan?"),
-                        ui.div({"class": "scope-choice-btns"},
-                            ui.tags.button("Yes, escalate",
-                                {"class": "scope-btn scope-btn-escalate",
-                                 "onclick": "Shiny.setInputValue('scope_decision','escalate',{priority:'event'})"}),
-                            ui.tags.button("No, move on",
-                                {"class": "scope-btn scope-btn-dismiss",
-                                 "onclick": "Shiny.setInputValue('scope_decision','dismiss',{priority:'event'})"}),
-                        ),
-                    )
-                )
-
-            # Topic escalation suggestion prompt
-            if m.get("suggest_escalation"):
-                bubble_inner.append(
-                    ui.div({"class": "escalation-prompt"},
-                        "It seems like we're not making progress on this one. "
-                        "Would you like me to escalate to Meredith Callahan?",
-                        ui.div({"class": "escalation-prompt-btns"},
-                            ui.tags.button("Yes, escalate",
-                                {"class": "scope-btn scope-btn-escalate",
-                                 "onclick": "Shiny.setInputValue('escalation_decision','escalate',{priority:'event'})"}),
-                            ui.tags.button("No, keep going",
-                                {"class": "scope-btn scope-btn-dismiss",
-                                 "onclick": "Shiny.setInputValue('escalation_decision','dismiss',{priority:'event'})"}),
-                        ),
-                    )
-                )
-
-            # Source badge
-            if not is_user and m.get("source_badge"):
-                bubble_inner.append(
-                    ui.div({"class": "source-badge"}, m["source_badge"])
-                )
-
-            # Feedback thumbs
-            if not is_user and msg_id and not m.get("is_system"):
-                fb       = feedback_log()
-                existing = next((f for f in fb if f["msg_id"] == msg_id), None)
-                up_cls   = "thumb-btn active-up"   if (existing and existing["helpful"])     else "thumb-btn"
-                down_cls = "thumb-btn active-down" if (existing and not existing.get("helpful", True)) else "thumb-btn"
-                bubble_inner.append(
-                    ui.div({"class": "feedback-row"},
-                        ui.span({"class": "feedback-label"}, "Helpful?"),
-                        ui.tags.button("👍",
-                            {"class": up_cls, "id": f"up-{msg_id}",
-                             "onclick": f"sendFeedback('{msg_id}', true)"}),
-                        ui.tags.button("👎",
-                            {"class": down_cls, "id": f"down-{msg_id}",
-                             "onclick": f"sendFeedback('{msg_id}', false)"}),
-                    )
-                )
-
-            elements.append(
-                ui.div({"class": row_cls},
-                    ui.div({"class": av_cls}, av_lbl),
-                    ui.div(
-                        ui.div({"class": bub_cls}, *bubble_inner),
-                        ui.div({"class": "msg-ts"}, m.get("ts", "")),
-                    ),
-                )
-            )
-
-        if thinking:
-            elements.append(
-                ui.div({"class": "msg-row"},
-                    ui.div({"class": "avatar avatar-ai"}, "AI"),
-                    ui.div({"class": "bubble bubble-ai"},
-                        ui.div({"class": "typing-dots"},
-                            ui.div({"class": "dot"}),
-                            ui.div({"class": "dot"}),
-                            ui.div({"class": "dot"}),
-                        )
-                    ),
-                )
-            )
-
-        return ui.div(*elements)
-
-    # ---- PS Summary panel ----
-    @output
-    @render.ui
-    def summary_panel_ui():
-        s = session_summary()
-        e = email_summary()
-        if not s:
-            return ui.div({"class": "panel-empty"},
-                "Session summary will appear here when the session ends.",
-                ui.tags.br(), ui.tags.br(),
-                ui.span({"style": "font-size:0.68rem;"},
-                    "Click 'End Session' or say 'let's wrap up' to generate the PS-facing summary.")
-            )
-        parsed = parse_summary(s)
-
-        structured_children = []
-
-        # Follow-up Indicators — FIRST, prominent
-        followup = parsed.get("FOLLOW_UP_INDICATORS", "None identified.")
-        structured_children.append(
-            ui.div({"class": "followup-block"},
-                ui.div({"class": "followup-label"}, "⚑ Follow-up Indicators"),
-                ui.div({"class": "followup-content"}, followup),
-            )
-        )
-
-        # Topic tags
-        tags_raw = parsed.get("TOPIC_TAGS", "")
-        if tags_raw and tags_raw not in ("N/A", "—"):
-            tag_list = [t.strip() for t in tags_raw.split(",") if t.strip()]
-            if tag_list:
-                structured_children.append(
-                    ui.div({"class": "tags-row"},
-                        *[ui.span({"class": "topic-tag"}, t) for t in tag_list]
-                    )
-                )
-
-        structured_children.append(ui.tags.hr({"class": "summary-divider"}))
-
-        field_order = [
-            ("DATE_TIME",             "Date / Time"),
-            ("CUSTOMER",              "Customer"),
-            ("OUTCOME",               "Outcome"),
-            ("TOPICS_COVERED",        "Topics Covered"),
-            ("GUIDANCE_PROVIDED",     "Guidance Provided"),
-            ("ESCALATION_SUMMARY",    "Escalation Summary"),
-            ("UNRESOLVED_QUESTIONS",  "Unresolved Questions"),
-            ("RESPONSE_FEEDBACK",     "Response Feedback"),
-        ]
-        for key, label in field_order:
-            val = parsed.get(key, "—") or "—"
-            outcome_cls = ""
-            if key == "OUTCOME":
-                if "Escalated" in val:      outcome_cls = "outcome-escalated"
-                elif "Partially" in val:    outcome_cls = "outcome-partial"
-                elif "Resolved" in val:     outcome_cls = "outcome-resolved"
-            structured_children.append(
-                ui.div({"class": "summary-field"},
-                    ui.div({"class": "summary-field-label"}, label),
-                    ui.div({"class": f"summary-field-value {outcome_cls}"}, val),
-                )
-            )
-
-        return ui.div(
-            ui.div({"class": "summary-header"},
-                ui.span("PS Session Summary"),
-                ui.div({"style": "display:flex; gap:0.4rem;"},
-                    ui.tags.button("Copy",
-                        {"class": "copy-btn", "id": "copy-summary-btn",
-                         "onclick": "copyToClipboard('summary-structured','copy-summary-btn')"}),
-                    ui.tags.button("Copy as Email",
-                        {"class": "copy-btn", "id": "copy-email-btn",
-                         "onclick": "copyToClipboard('summary-email','copy-email-btn')"}),
-                ),
-            ),
-            ui.div({"class": "email-toggle-row"},
-                ui.span({"class": "email-toggle-label"}, "View:"),
-                ui.tags.button("Structured",
-                    {"class": "format-toggle-btn active", "id": "fmt-structured",
-                     "onclick": "toggleSummaryFormat('structured')"}),
-                ui.tags.button("Email-ready",
-                    {"class": "format-toggle-btn", "id": "fmt-email",
-                     "onclick": "toggleSummaryFormat('email')"}),
-            ),
-            ui.div({"id": "summary-structured", "style": "display:block"},
-                *structured_children),
-            ui.div({"id": "summary-email",
-                    "style": "display:none; white-space:pre-wrap; font-size:0.78rem; color:#1C2333; line-height:1.6;"},
-                e or build_email_summary(parsed)),
-        )
-
-    # ---- Escalation panel — multiple entries, immediate render ----
-    @output
-    @render.ui
-    def escalation_panel_ui():
-        entries = handoff_entries()
-        if not entries:
-            return ui.div({"class": "panel-empty"},
-                "Handoff summary appears here if escalation is triggered.",
-                ui.tags.br(), ui.tags.br(),
-                ui.span({"style": "font-size:0.68rem;"},
-                    "Escalation triggers when you confirm you want to reach the PS team "
-                    "or after repeated unresolved exchanges on the same topic.")
-            )
-
-        entry_elements = []
-        for i, entry in enumerate(entries, 1):
-            eid = f"handoff-{entry['id']}"
-            btn_id = f"copy-handoff-{entry['id']}"
-            entry_elements.append(
-                ui.div({"class": "handoff-entry"},
-                    ui.div({"class": "handoff-entry-header"},
-                        ui.span({"class": "handoff-entry-num"},
-                            f"Escalation #{i} — {entry['ts']}"),
-                        ui.tags.button("Copy",
-                            {"class": "copy-btn", "id": btn_id,
-                             "onclick": f"copyToClipboard('{eid}','{btn_id}')"}),
-                    ),
-                    ui.div({"id": eid}, entry["text"]),
-                )
-            )
-
-        return ui.div(
-            ui.div({"class": "panel-section-label label-handoff"},
-                f"⚡ Escalation Handoff {'Summary' if len(entries) == 1 else f'Summaries ({len(entries)})'}"
-            ),
-            ui.div({"style": "font-size:0.72rem; color:#9BA8BF; margin-bottom:0.75rem;"},
-                "Share with Meredith Callahan so she can pick up without context gaps."),
-            *entry_elements,
-        )
-
-    # ---- Feedback handler ----
-    @reactive.effect
-    @reactive.event(input.feedback_event)
-    def handle_feedback():
-        evt = input.feedback_event()
-        if not evt:
-            return
-        msg_id  = evt.get("msg_id")
-        helpful = evt.get("helpful")
-        if msg_id is None:
-            return
-        current = [f for f in feedback_log() if f["msg_id"] != msg_id]
-        current.append({"msg_id": msg_id, "helpful": helpful})
-        feedback_log.set(current)
-
-    # ---- Scope decision ----
-    @reactive.effect
-    @reactive.event(input.scope_decision)
-    def handle_scope_decision():
-        decision = input.scope_decision()
-        if decision == "escalate":
-            _do_escalate()
-        elif decision == "dismiss":
-            # Remove scope_choice flag — NOT an escalation
-            msgs = messages()
-            if msgs:
-                messages.set(msgs[:-1] + [{**msgs[-1], "scope_choice": False}])
-            scope_pending.set(False)
-            ts  = datetime.now().strftime("%H:%M")
-            mid = msg_count() + 1
-            msg_count.set(mid)
-            messages.set(messages() + [{
-                "role": "assistant",
-                "content": "Understood — we'll set that aside. What else can I help you with?",
-                "ts": ts, "id": f"msg_{mid}", "is_system": True,
-            }])
-
-    # ---- Topic escalation decision ----
-    @reactive.effect
-    @reactive.event(input.escalation_decision)
-    def handle_escalation_decision():
-        decision = input.escalation_decision()
-        if decision == "escalate":
-            _do_escalate()
-        elif decision == "dismiss":
-            # Remove suggest_escalation flag — reset tracker
-            msgs = messages()
-            if msgs:
-                messages.set(msgs[:-1] + [{**msgs[-1], "suggest_escalation": False}])
-            tracker.reset()
-            ts  = datetime.now().strftime("%H:%M")
-            mid = msg_count() + 1
-            msg_count.set(mid)
-            messages.set(messages() + [{
-                "role": "assistant",
-                "content": "No problem — let's keep going. What would you like to try next?",
-                "ts": ts, "id": f"msg_{mid}", "is_system": True,
-            }])
-
-    def _do_escalate():
-        """Set escalation flag, generate handoff, append to entries list and chat."""
-        escalated.set(True)
-        scope_pending.set(False)
-
-        # Remove any pending choice flags from messages
-        msgs = messages()
-        cleaned = []
-        for m in msgs:
-            cleaned.append({**m, "scope_choice": False, "suggest_escalation": False})
-        messages.set(cleaned)
-
-        api_msgs = [{"role": m["role"], "content": m["content"]} for m in messages()]
-        handoff  = generate_handoff_summary(
-            messages=api_msgs,
-            customer_name=input.customer_name() or "Not provided",
-            customer_role=input.customer_role() or "Not specified",
-        )
-
-        ts  = datetime.now().strftime("%H:%M")
-        eid = len(handoff_entries()) + 1
-
-        # Append to handoff entries (drives Escalation tab)
-        handoff_entries.set(handoff_entries() + [{"id": eid, "text": handoff, "ts": ts}])
-
-        # Add ONCE to chat
-        mid = msg_count() + 1
-        msg_count.set(mid)
-        messages.set(messages() + [{
-            "role": "assistant",
-            "content": (
-                "Here is a summary you can share with Meredith Callahan so she can "
-                "pick up right where we left off:\n\n"
-                "---\n**HANDOFF SUMMARY FOR MEREDITH CALLAHAN**\n\n" + handoff
-            ),
-            "ts": ts, "id": f"msg_{mid}", "is_system": True,
-        }])
-
-    # ---- Send button ----
-    @reactive.effect
-    @reactive.event(input.send_btn)
-    def handle_send():
-        if ended():
-            return
-
-        user_text = input.user_input()
-        if not user_text or not user_text.strip():
-            return
-
-        ui.update_text("user_input", value="")
-
-        if not started():
-            started.set(True)
-            start_ts.set(datetime.now().strftime("%Y-%m-%d %H:%M"))
-
-        current_role = input.customer_role()
-        if not current_role:
-            detected = detect_role(user_text)
-            if detected:
-                current_role = detected
-
-        # Natural language session end
-        if check_session_end_intent(user_text):
-            _close_session(current_role, natural_language=True)
-            return
-
-        # Explicit escalation request
-        if check_explicit_escalation(user_text) and not escalated():
-            _do_escalate()
-            return
-
-        # Scope question — offer choice, not auto-escalate
-        is_scope_q = check_scope_question(user_text) and not escalated()
-
-        # Add user message
-        ts  = datetime.now().strftime("%H:%M")
-        mid = msg_count() + 1
-        msg_count.set(mid)
-        messages.set(messages() + [{
-            "role": "user", "content": user_text, "ts": ts, "id": f"msg_{mid}",
-        }])
-
-        is_thinking.set(True)
-
-        is_first = len([m for m in messages() if m["role"] == "assistant"]) == 0
-        api_msgs  = [{"role": m["role"], "content": m["content"]} for m in messages()]
-        sys_prompt = build_system_prompt(
-            customer_name=input.customer_name() or "",
-            customer_role=current_role or "",
-            is_first_message=is_first,
-        )
-
+def call_claude(messages: list, system_prompt: str, max_tokens: int = 1000) -> str:
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": get_api_key(),
+        "anthropic-version": "2023-06-01",
+    }
+    body = {
+        "model": MODEL,
+        "max_tokens": max_tokens,
+        "system": system_prompt,
+        "messages": messages,
+    }
+    try:
+        resp = httpx.post(API_URL, headers=headers, json=body, timeout=60.0)
+        resp.raise_for_status()
+        data = resp.json()
+        blocks = [b["text"] for b in data.get("content", []) if b.get("type") == "text"]
+        if not blocks:
+            raise ValueError("No text content returned by API.")
+        return "\n".join(blocks)
+    except httpx.HTTPStatusError as e:
         try:
-            response_text = call_claude(messages=api_msgs, system_prompt=sys_prompt)
-            is_thinking.set(False)
+            detail = e.response.json().get("error", {}).get("message", str(e))
+        except Exception:
+            detail = str(e)
+        raise RuntimeError(f"Anthropic API error: {detail}") from e
+    except Exception as e:
+        raise RuntimeError(f"API request failed: {str(e)}") from e
 
-            # Natural language end detection from model
-            if "TRIGGER_SESSION_END" in response_text:
-                response_text = response_text.replace("TRIGGER_SESSION_END", "").strip()
-                ts2  = datetime.now().strftime("%H:%M")
-                mid2 = msg_count() + 1
-                msg_count.set(mid2)
-                messages.set(messages() + [{
-                    "role": "assistant", "content": response_text,
-                    "ts": ts2, "id": f"msg_{mid2}",
-                    "source_badge": extract_source_badge(response_text),
-                }])
-                _close_session(current_role, natural_language=True)
-                return
 
-            # Track unresolved questions
-            if check_unresolved_response(response_text):
-                ulog = unresolved_log() + [user_text[:120]]
-                unresolved_log.set(ulog)
-
-            # Topic-aware escalation suggestion (not trigger)
-            suggest_esc = tracker.update(user_text, response_text) and not escalated()
-
-            source = extract_source_badge(response_text)
-
-            ts_resp = datetime.now().strftime("%H:%M")
-            mid3    = msg_count() + 1
-            msg_count.set(mid3)
-
-            messages.set(messages() + [{
-                "role": "assistant",
-                "content": response_text,
-                "ts": ts_resp,
-                "id": f"msg_{mid3}",
-                "source_badge": source,
-                "scope_choice": is_scope_q,
-                "suggest_escalation": suggest_esc,
-            }])
-
-            if is_scope_q:
-                scope_pending.set(True)
-
-        except Exception as e:
-            is_thinking.set(False)
-            mid_e = msg_count() + 1
-            msg_count.set(mid_e)
-            messages.set(messages() + [{
-                "role": "assistant",
-                "content": (
-                    "I encountered an error connecting to the assistant backend. "
-                    f"Please try again or contact your PS lead directly.\n\nDetail: {str(e)}"
-                ),
-                "ts": datetime.now().strftime("%H:%M"),
-                "id": f"msg_{mid_e}", "is_system": True,
-            }])
-
-    # ---- End Session button ----
-    @reactive.effect
-    @reactive.event(input.end_session)
-    def handle_end_session():
-        if not started() or ended():
-            return
-        _close_session(input.customer_role() or "", natural_language=False)
-
-    def _close_session(current_role: str, natural_language: bool = False):
-        if ended():
-            return
-        ended.set(True)
-
-        api_msgs = [{"role": m["role"], "content": m["content"]} for m in messages()]
-        summary  = generate_session_summary(
-            messages=api_msgs,
-            customer_name=input.customer_name() or "Not provided",
-            customer_role=current_role or "Not specified",
-            session_start=start_ts() or "Unknown",
-            escalated=escalated(),
-            handoff_text="\n\n".join(e["text"] for e in handoff_entries()),
-            unresolved_log=unresolved_log(),
-            feedback_log=feedback_log(),
+# ---------------------------------------------------------------------------
+# Handoff summary — rephrased fields
+# "Customer was trying to:" → "Goal:"
+# "What was discussed:" → "What was being discussed:"
+# ---------------------------------------------------------------------------
+def generate_handoff_summary(messages: list, customer_name: str, customer_role: str) -> str:
+    try:
+        transcript = "\n\n".join(
+            f"{'CUSTOMER' if m['role'] == 'user' else 'ASSISTANT'}: {m['content']}"
+            for m in messages
         )
-        session_summary.set(summary)
-        email_summary.set(build_email_summary(parse_summary(summary)))
+        prompt = f"""Generate a concise escalation handoff summary based on this conversation.
+Customer: {customer_name or 'Not provided'} ({customer_role or 'Role not specified'})
 
-        ts  = datetime.now().strftime("%H:%M")
-        mid = msg_count() + 1
-        msg_count.set(mid)
-        prefix = "Got it — I'll close out our session now. " if natural_language else ""
-        messages.set(messages() + [{
-            "role": "assistant",
-            "content": (
-                prefix +
-                "**Session ended.** A summary has been generated in the PS Summary tab. "
-                "Meredith Callahan will have full context of what we covered today."
-            ),
-            "ts": ts, "id": f"msg_{mid}", "is_system": True,
-        }])
+CONVERSATION:
+{transcript}
 
+Format the output in EXACTLY this structure — no preamble, no closing remarks:
 
-# ===========================================================================
-# HELPERS
-# ===========================================================================
+Goal: [one sentence describing what the customer was trying to accomplish]
+What was being discussed: [2-3 sentences max]
+Where they got stuck: [specific blocker or unanswered question]
+Relevant project context: [milestone, due date, or task reference if applicable]"""
 
-def extract_source_badge(text: str) -> str:
-    for line in text.split("\n"):
-        s = line.strip()
-        if any(s.startswith(p) for p in ["📘 Source:", "📋 Source:", "📗 Source:", "📄 Source:"]):
-            return s
-    return ""
+        return call_claude(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt="You generate concise, factual escalation handoff summaries for a PS team.",
+            max_tokens=400,
+        )
+    except Exception as e:
+        return f"Handoff summary generation failed: {str(e)}"
 
 
-def parse_summary(raw: str) -> dict:
-    fields = [
-        "FOLLOW_UP_INDICATORS", "DATE_TIME", "CUSTOMER", "OUTCOME",
-        "TOPIC_TAGS", "TOPICS_COVERED", "GUIDANCE_PROVIDED",
-        "ESCALATION_SUMMARY", "UNRESOLVED_QUESTIONS", "RESPONSE_FEEDBACK",
-    ]
-    result      = {}
-    current_key = None
-    current_val = []
-    for line in raw.split("\n"):
-        matched = False
-        for field in fields:
-            if line.startswith(f"{field}:"):
-                if current_key:
-                    result[current_key] = "\n".join(current_val).strip()
-                current_key = field
-                current_val = [line[len(field)+1:].strip()]
-                matched = True
-                break
-        if not matched and current_key:
-            current_val.append(line)
-    if current_key:
-        result[current_key] = "\n".join(current_val).strip()
-    return result
+def generate_session_summary(
+    messages: list,
+    customer_name: str,
+    customer_role: str,
+    session_start: str,
+    escalated: bool,
+    handoff_text: str = "",
+    unresolved_log: list = None,
+    feedback_log: list = None,
+) -> str:
+    try:
+        transcript = "\n\n".join(
+            f"{'CUSTOMER' if m['role'] == 'user' else 'ASSISTANT'}: {m['content']}"
+            for m in messages
+        )
+        session_end    = datetime.now().strftime("%Y-%m-%d %H:%M")
+        escalated_str  = "Yes" if escalated else "No"
+
+        unresolved_str = ""
+        if unresolved_log:
+            unresolved_str = "\n\nUNRESOLVED QUESTIONS THIS SESSION:\n" + "\n".join(
+                f"- {q}" for q in unresolved_log
+            )
+
+        feedback_str = ""
+        if feedback_log:
+            helpful     = sum(1 for f in feedback_log if f["helpful"])
+            not_helpful = sum(1 for f in feedback_log if not f["helpful"])
+            feedback_str = f"\n\nRESPONSE FEEDBACK: {helpful} helpful, {not_helpful} not helpful"
+
+        from knowledge_base import TOPIC_TAGS
+        tags_list = ", ".join(TOPIC_TAGS)
+
+        prompt = f"""You are generating a PS-facing session summary for a Posit Cloud implementation assistant.
+This summary is for Meredith Callahan (PS Lead), NOT the customer.
+Be factual, specific, and concise. Do not speculate about customer intent.
+
+Customer name: {customer_name or 'Not provided'}
+Customer role: {customer_role or 'Not specified'}
+Session start: {session_start}
+Session end: {session_end}
+Escalated: {escalated_str}
+{feedback_str}
+{unresolved_str}
+
+CONVERSATION TRANSCRIPT:
+{transcript}
+
+Generate a session summary in EXACTLY this format. Every field is required.
+
+FOLLOW_UP_INDICATORS: [Specific signals PS should act on proactively. Be specific. If none, write "None identified."]
+DATE_TIME: {session_start} — {session_end}
+CUSTOMER: {customer_name or 'Not provided'} | {customer_role or 'Not specified'}
+OUTCOME: [Resolved / Partially Resolved / Escalated]
+TOPIC_TAGS: [Select all that apply from: {tags_list}]
+TOPICS_COVERED: [Comma-separated list]
+GUIDANCE_PROVIDED: [2-4 sentences summarizing key guidance shared]
+ESCALATION_SUMMARY: [Full handoff summary if escalated; otherwise N/A]
+UNRESOLVED_QUESTIONS: [List questions the assistant could not answer; otherwise None]
+RESPONSE_FEEDBACK: [Summary of helpful/not-helpful feedback if any; otherwise None]
+
+Keep under 400 words. No preamble or closing remarks."""
+
+        return call_claude(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt="You generate factual, structured session summaries for a PS team.",
+            max_tokens=700,
+        )
+    except Exception as e:
+        return f"Session summary generation failed: {str(e)}"
 
 
-def build_email_summary(parsed: dict) -> str:
-    lines = ["POSIT CLOUD IMPLEMENTATION ASSISTANT — SESSION SUMMARY", "=" * 55, ""]
-    followup = parsed.get("FOLLOW_UP_INDICATORS", "None identified.")
-    if followup and followup != "None identified.":
-        lines += ["FOLLOW-UP INDICATORS (Action Required)", "-" * 40, followup, ""]
-    for key, label in [
-        ("DATE_TIME", "Date / Time"), ("CUSTOMER", "Customer"), ("OUTCOME", "Outcome"),
-        ("TOPIC_TAGS", "Topics"), ("TOPICS_COVERED", "Topics Covered"),
-        ("GUIDANCE_PROVIDED", "Guidance Provided"), ("ESCALATION_SUMMARY", "Escalation Summary"),
-        ("UNRESOLVED_QUESTIONS", "Unresolved Questions"), ("RESPONSE_FEEDBACK", "Response Feedback"),
-    ]:
-        val = parsed.get(key, "")
-        if val and val.strip():
-            lines += [f"{label}: {val}", ""]
-    lines += ["-" * 55, "Generated by Posit Cloud Implementation Assistant"]
-    return "\n".join(lines)
+# ---------------------------------------------------------------------------
+# Detection helpers
+# ---------------------------------------------------------------------------
+
+def check_explicit_escalation(user_message: str) -> bool:
+    msg = user_message.lower()
+    return any(phrase in msg for phrase in ESCALATION_PHRASES)
 
 
-def format_message(text: str) -> str:
+def check_resolution_signal(user_message: str) -> bool:
+    msg = user_message.lower()
+    return any(phrase in msg for phrase in RESOLUTION_PHRASES)
+
+
+def check_session_end_intent(user_message: str) -> bool:
+    msg = user_message.lower()
+    return any(phrase in msg for phrase in SESSION_END_PHRASES)
+
+
+def check_scope_question(user_message: str) -> bool:
+    msg = user_message.lower()
+    return any(phrase in msg for phrase in SCOPE_SIGNALS)
+
+
+def check_unresolved_response(assistant_message: str) -> bool:
+    msg = assistant_message.lower()
+    return any(phrase in msg for phrase in UNRESOLVED_SIGNALS)
+
+
+def detect_role(user_message: str) -> str | None:
+    msg = user_message.lower()
+    it_signals = ["it admin", "sysadmin", "system admin", "technical lead", "tech lead",
+                  "derek", "infrastructure", "shibboleth", "sso config", "network admin"]
+    if any(s in msg for s in it_signals):
+        return "IT Admin / Technical Lead"
+    pm_signals = ["project manager", "pm ", " pm", "project lead", "project coordinator",
+                  "implementation lead", "program manager"]
+    if any(s in msg for s in pm_signals):
+        return "Project Lead / Project Manager"
+    exec_signals = ["executive", "director", "vp ", "dean", "chief", "sponsor",
+                    "leadership", "dr. kim", "kim osei", "research director"]
+    if any(s in msg for s in exec_signals):
+        return "Executive Sponsor / Research Director"
+    uat_signals = ["uat", "user acceptance", "tester", "testing team", "qa "]
+    if any(s in msg for s in uat_signals):
+        return "UAT Tester"
+    researcher_signals = ["researcher", "faculty", "professor", "grad student", "graduate student",
+                          "postdoc", "analyst", "scientist", "end user", "i use r", "i run analyses"]
+    if any(s in msg for s in researcher_signals):
+        return "Researcher / End User"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Topic-aware escalation tracker
+#
+# Tracks consecutive unresolved exchanges PER TOPIC (derived from the last
+# user question). Resets when the user signals resolution or changes topic.
+# Never fires on scope dismissal — that is handled separately in app.py.
+# ---------------------------------------------------------------------------
+
+class TopicEscalationTracker:
     """
-    Convert markdown to HTML for chat bubbles.
-    Blockquotes rendered as a single .transparency-notice div.
+    Tracks how many consecutive exchanges on the same topic have not resolved.
+    Escalation is suggested (not triggered) when the count reaches 3.
+    The app prompts the user; only user confirmation sets escalated=True.
     """
-    # Collect blockquote lines into one block before any other processing
-    def collect_blockquotes(t: str) -> str:
-        lines = t.split("\n")
-        out   = []
-        bq    = []
-        for line in lines:
-            if line.strip().startswith("> "):
-                bq.append(line.strip()[2:])
-            else:
-                if bq:
-                    # Join all blockquote lines into one container
-                    combined = " ".join(bq)
-                    combined = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', combined)
-                    combined = re.sub(r'`([^`]+)`', r'<code>\1</code>', combined)
-                    out.append(f'<div class="transparency-notice">{combined}</div>')
-                    bq = []
-                out.append(line)
-        if bq:
-            combined = " ".join(bq)
-            combined = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', combined)
-            out.append(f'<div class="transparency-notice">{combined}</div>')
-        return "\n".join(out)
 
-    text = collect_blockquotes(text)
+    def __init__(self):
+        self.current_topic: str = ""
+        self.count: int = 0
 
-    # Horizontal rules
-    text = re.sub(r'\n---\n', '\n<hr>\n', text)
+    def update(self, user_message: str, assistant_response: str) -> bool:
+        """
+        Update tracker and return True if the escalation prompt should be shown.
+        Does NOT set escalated=True — that only happens on user confirmation.
+        """
+        msg = user_message.lower().strip()
 
-    # Bold
-    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
-    text = re.sub(r'__(.+?)__',     r'<strong>\1</strong>', text)
+        # Resolution signal resets the counter
+        if check_resolution_signal(user_message):
+            self.count = 0
+            self.current_topic = ""
+            return False
 
-    # Inline code
-    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+        # Extract a rough topic fingerprint (first 60 chars of user message)
+        topic_key = msg[:60]
 
-    # Source badge lines
-    text = re.sub(
-        r'(?m)^[📘📋📗📄] Source:.*$',
-        lambda m: f'<div class="source-badge">{m.group(0).strip()}</div>',
-        text
-    )
-
-    # Tables
-    lines    = text.split('\n')
-    output   = []
-    in_list  = False
-    in_table = False
-    thtml    = ""
-    hdr_done = False
-
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith('|') and stripped.endswith('|'):
-            if re.match(r'^\|[-\s|:]+\|$', stripped):
-                hdr_done = True
-                continue
-            if not in_table:
-                in_table = True
-                hdr_done = False
-                thtml = '<table>'
-            cells = [c.strip() for c in stripped[1:-1].split('|')]
-            if not hdr_done:
-                row = ''.join(f'<th>{c}</th>' for c in cells)
-                hdr_done = True
-            else:
-                row = ''.join(f'<td>{c}</td>' for c in cells)
-            thtml += f'<tr>{row}</tr>'
-            continue
+        if self._same_topic(topic_key):
+            self.count += 1
         else:
-            if in_table:
-                output.append(thtml + '</table>')
-                thtml = ''; in_table = False; hdr_done = False
+            # New topic — reset
+            self.current_topic = topic_key
+            self.count = 1
 
-        lm = re.match(r'^(\d+\.\s+|[-*]\s+)(.*)', stripped)
-        if lm:
-            if not in_list:
-                output.append('<ul>')
-                in_list = True
-            output.append(f'<li>{lm.group(2)}</li>')
-        else:
-            if in_list:
-                output.append('</ul>')
-                in_list = False
-            output.append(line)
+        # Check if assistant response signals it couldn't help
+        assistant_couldnt_help = check_unresolved_response(assistant_response)
 
-    if in_list:  output.append('</ul>')
-    if in_table: output.append(thtml + '</table>')
+        # Suggest escalation after 3 unresolved exchanges on same topic
+        if self.count >= 3 and assistant_couldnt_help:
+            return True
 
-    text = '\n'.join(output)
+        return False
 
-    paragraphs = re.split(r'\n{2,}', text)
-    result = []
-    for p in paragraphs:
-        p = p.strip()
-        if not p:
-            continue
-        p = p.replace('\n', '<br>')
-        if re.match(r'^<(ul|ol|table|hr|div|blockquote)', p):
-            result.append(p)
-        else:
-            result.append(f'<p>{p}</p>')
+    def _same_topic(self, topic_key: str) -> bool:
+        """Rough topic similarity — shared 4+ word sequence or high char overlap."""
+        if not self.current_topic:
+            return False
+        # Simple heuristic: 40%+ character overlap with current topic
+        a = set(self.current_topic.split())
+        b = set(topic_key.split())
+        if not a or not b:
+            return False
+        overlap = len(a & b) / max(len(a), len(b))
+        return overlap >= 0.35
 
-    return '\n'.join(result)
-
-
-# ===========================================================================
-# RUN
-# ===========================================================================
-app = App(app_ui, server)
+    def reset(self):
+        self.current_topic = ""
+        self.count = 0
