@@ -637,11 +637,6 @@ function switchTab(tab) {
     if (pane) pane.classList.add('active');
 }
 
-// Auto-switch to Escalation tab when first escalation entry appears
-function autoSwitchToEscalation() {
-    switchTab('escalation');
-}
-
 // Collapsible task sections
 function toggleTaskSection(sectionId) {
     const list = document.getElementById(sectionId);
@@ -754,14 +749,6 @@ function launchDemo(name, role, message) {
     if (window.Shiny) {
         Shiny.setInputValue('demo_launch', { name: name, role: role, message: message }, { priority: 'event' });
     }
-}
-
-// Set input disabled state
-function setInputDisabled(disabled) {
-    const ta  = document.getElementById('user_input');
-    const btn = document.getElementById('send_btn');
-    if (ta)  ta.disabled = disabled;
-    if (btn) btn.disabled = disabled;
 }
 """
 
@@ -886,6 +873,10 @@ app_ui = ui.page_fixed(
     ui.tags.head(
         ui.tags.style(CSS),
         ui.tags.script(JS),
+        # Reactive style injection for input disabled state
+        ui.output_ui("input_state_ui"),
+        # Reactive escalation tab switch
+        ui.output_ui("escalation_switch_ui"),
     ),
     # Info modal (rendered outside app-shell so it overlays everything)
     MODAL_HTML,
@@ -906,8 +897,7 @@ app_ui = ui.page_fixed(
         ui.div({"class": "left-sidebar"},
             ui.div({"class": "sidebar-label"}, "Your Name"),
             ui.input_text("customer_name", None, placeholder="Enter your name"),
-            ui.div({"class": "name-warning", "id": "name-warning"},
-                "Please enter your name before starting."),
+            ui.output_ui("name_warning_ui"),
 
             ui.div({"class": "sidebar-label"}, "Your Role"),
             ui.input_select("customer_role", None,
@@ -1025,19 +1015,58 @@ def server(input, output, session):
     ended              = reactive.value(False)
     start_ts           = reactive.value(None)
     escalated          = reactive.value(False)
-    # List of handoff dicts: {"id": int, "text": str, "ts": str}
     handoff_entries    = reactive.value([])
     session_summary    = reactive.value("")
     email_summary      = reactive.value("")
-    summary_generating = reactive.value(False)   # loading state for PS Summary tab
+    summary_generating = reactive.value(False)
     is_thinking        = reactive.value(False)
+    input_disabled     = reactive.value(False)   # drives textarea/button disabled state
+    name_warned        = reactive.value(False)    # drives name warning visibility
+    switch_to_esc      = reactive.value(0)        # increment to trigger tab switch
     msg_count          = reactive.value(0)
     feedback_log       = reactive.value([])
     unresolved_log     = reactive.value([])
     scope_pending      = reactive.value(False)
 
-    # Topic-aware escalation tracker (one instance per session)
     tracker = TopicEscalationTracker()
+
+    # ---- Input disabled state — driven by reactive, no JS injection ----
+    @output
+    @render.ui
+    def input_state_ui():
+        disabled = input_disabled()
+        if disabled:
+            return ui.tags.style("""
+                #user_input { pointer-events: none; opacity: 0.5; background: #E8EDF5 !important; }
+                #send_btn   { pointer-events: none; opacity: 0.5; background: #9BA8BF !important; }
+            """)
+        else:
+            return ui.tags.style("""
+                #user_input { pointer-events: auto; opacity: 1; }
+                #send_btn   { pointer-events: auto; opacity: 1; }
+            """)
+
+    # ---- Name warning visibility ----
+    @output
+    @render.ui
+    def name_warning_ui():
+        if name_warned():
+            return ui.div(
+                {"class": "name-warning visible"},
+                "Please enter your name before starting."
+            )
+        return ui.div({"class": "name-warning"})
+
+    # ---- Escalation tab switch — fires once per escalation ----
+    @output
+    @render.ui
+    def escalation_switch_ui():
+        # Read the counter to make this reactive to it
+        _ = switch_to_esc()
+        # We only need to produce JS once when the value changes
+        if switch_to_esc() > 0:
+            return ui.tags.script("switchTab('escalation');")
+        return ui.div()
 
     # ---- Sidebar task section ----
     @output
@@ -1386,6 +1415,9 @@ def server(input, output, session):
         email_summary.set("")
         summary_generating.set(False)
         is_thinking.set(False)
+        input_disabled.set(False)
+        name_warned.set(False)
+        switch_to_esc.set(0)
         msg_count.set(0)
         feedback_log.set([])
         unresolved_log.set([])
@@ -1416,6 +1448,9 @@ def server(input, output, session):
         email_summary.set("")
         summary_generating.set(False)
         is_thinking.set(False)
+        input_disabled.set(False)
+        name_warned.set(False)
+        switch_to_esc.set(0)
         msg_count.set(0)
         feedback_log.set([])
         unresolved_log.set([])
@@ -1554,12 +1589,9 @@ def server(input, output, session):
         # Append to handoff entries (drives Escalation tab)
         handoff_entries.set(handoff_entries() + [{"id": eid, "text": handoff, "ts": ts}])
 
-        # Auto-switch to Escalation tab on first escalation so user sees it
+        # Auto-switch to Escalation tab on first escalation
         if is_first_escalation:
-            ui.insert_ui(
-                ui.tags.script("autoSwitchToEscalation()"),
-                selector="body", where="beforeEnd"
-            )
+            switch_to_esc.set(switch_to_esc() + 1)
 
         # Add ONCE to chat
         mid = msg_count() + 1
@@ -1588,11 +1620,7 @@ def server(input, output, session):
         # Name guard — soft prompt, not hard block
         customer_name = input.customer_name() or ""
         if not customer_name.strip() and not started():
-            ui.insert_ui(
-                ui.tags.script("document.getElementById('name-warning').classList.add('visible')"),
-                selector="body", where="beforeEnd"
-            )
-            # Continue anyway — don't block the user
+            name_warned.set(True)
 
         ui.update_text("user_input", value="")
 
@@ -1629,10 +1657,7 @@ def server(input, output, session):
 
         # Disable input while thinking
         is_thinking.set(True)
-        ui.insert_ui(
-            ui.tags.script("setInputDisabled(true)"),
-            selector="body", where="beforeEnd"
-        )
+        input_disabled.set(True)
 
         # Only send real conversation turns to Claude — exclude UI system messages
         is_first  = len([m for m in messages() if m["role"] == "assistant" and not m.get("is_system")]) == 0
@@ -1652,10 +1677,7 @@ def server(input, output, session):
         try:
             response_text = call_claude(messages=api_msgs, system_prompt=sys_prompt)
             is_thinking.set(False)
-            ui.insert_ui(
-                ui.tags.script("setInputDisabled(false)"),
-                selector="body", where="beforeEnd"
-            )
+            input_disabled.set(False)
 
             # Natural language end detection from model
             if "TRIGGER_SESSION_END" in response_text:
@@ -1700,10 +1722,7 @@ def server(input, output, session):
 
         except Exception as e:
             is_thinking.set(False)
-            ui.insert_ui(
-                ui.tags.script("setInputDisabled(false)"),
-                selector="body", where="beforeEnd"
-            )
+            input_disabled.set(False)
             mid_e = msg_count() + 1
             msg_count.set(mid_e)
             messages.set(messages() + [{
