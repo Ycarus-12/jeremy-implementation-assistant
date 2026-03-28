@@ -405,7 +405,11 @@ body {
 .handoff-entry {
     background: #FFFDF0; border: 1px solid #FFD54F;
     border-radius: 6px; padding: 0.85rem; margin-bottom: 0.75rem;
-    font-size: 0.78rem; line-height: 1.65; color: #3D2B00; white-space: pre-wrap;
+    font-size: 0.78rem; line-height: 1.65; color: #3D2B00;
+}
+.handoff-entry-content {
+    white-space: pre-wrap;
+    font-size: 0.78rem; line-height: 1.65; color: #3D2B00;
 }
 .handoff-entry-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -648,19 +652,64 @@ function toggleTaskSection(sectionId) {
     if (icon) icon.classList.toggle('collapsed', !collapsed);
 }
 
-// Copy to clipboard
-function copyToClipboard(elementId, btnId) {
+// Copy to clipboard — two modes:
+// 1. copyById(elementId, btnId) — copies text from element with given ID
+// 2. copyFromBtn(btn) — walks up DOM from button to find sibling content div
+function copyById(elementId, btnId) {
     const el = document.getElementById(elementId);
-    if (!el) return;
-    navigator.clipboard.writeText(el.innerText || el.textContent).then(() => {
-        const btn = document.getElementById(btnId);
+    if (!el) {
+        console.warn('copyById: element not found:', elementId);
+        return;
+    }
+    const text = el.innerText || el.textContent || '';
+    _doCopy(text, document.getElementById(btnId));
+}
+
+function copyFromBtn(btn) {
+    // Walk up to the handoff-entry container, then find the content div
+    const entry = btn.closest('.handoff-entry');
+    if (!entry) { console.warn('copyFromBtn: no .handoff-entry parent found'); return; }
+    // The content div is the last child of the entry (after the header)
+    const contentDivs = entry.querySelectorAll(':scope > div:not(.handoff-entry-header)');
+    const text = Array.from(contentDivs).map(d => d.innerText || d.textContent).join('\n').trim();
+    _doCopy(text, btn);
+}
+
+function _doCopy(text, btn) {
+    if (!text) { console.warn('_doCopy: nothing to copy'); return; }
+    navigator.clipboard.writeText(text).then(() => {
         if (btn) {
             const orig = btn.innerText;
             btn.innerText = '✓ Copied';
             btn.classList.add('copied');
             setTimeout(() => { btn.innerText = orig; btn.classList.remove('copied'); }, 2000);
         }
+    }).catch(err => {
+        // Fallback for browsers that block clipboard API
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            if (btn) {
+                const orig = btn.innerText;
+                btn.innerText = '✓ Copied';
+                btn.classList.add('copied');
+                setTimeout(() => { btn.innerText = orig; btn.classList.remove('copied'); }, 2000);
+            }
+        } catch(e) {
+            console.warn('Copy failed:', e);
+        }
+        document.body.removeChild(ta);
     });
+}
+
+// Legacy alias used by summary copy buttons
+function copyToClipboard(elementId, btnId) {
+    copyById(elementId, btnId);
 }
 
 // Thumb feedback
@@ -1299,7 +1348,6 @@ def server(input, output, session):
 
         entry_elements = []
         for i, entry in enumerate(entries, 1):
-            eid = f"handoff-{entry['id']}"
             btn_id = f"copy-handoff-{entry['id']}"
             entry_elements.append(
                 ui.div({"class": "handoff-entry"},
@@ -1308,9 +1356,9 @@ def server(input, output, session):
                             f"Escalation #{i} — {entry['ts']}"),
                         ui.tags.button("Copy",
                             {"class": "copy-btn", "id": btn_id,
-                             "onclick": f"copyToClipboard('{eid}','{btn_id}')"}),
+                             "onclick": "copyFromBtn(this)"}),
                     ),
-                    ui.div({"id": eid}, entry["text"]),
+                    ui.div({"class": "handoff-entry-content"}, entry["text"]),
                 )
             )
 
