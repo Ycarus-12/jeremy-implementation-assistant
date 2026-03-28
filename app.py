@@ -437,6 +437,161 @@ body {
 }
 .format-toggle-btn.active { background: #EEF4FA; border-color: #447099; color: #447099; }
 
+/* ---- Info modal ---- */
+.modal-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(28, 35, 51, 0.55);
+    backdrop-filter: blur(3px);
+    align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+
+.modal-box {
+    background: #FFFFFF;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    width: min(680px, 92vw);
+    max-height: 85vh;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.modal-header {
+    background: #1C2333;
+    color: white;
+    padding: 1rem 1.25rem;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    flex-shrink: 0;
+}
+.modal-header-title {
+    font-size: 0.95rem; font-weight: 600; color: #E8EDF5; margin-bottom: 0.15rem;
+}
+.modal-header-sub { font-size: 0.72rem; color: #6B7A99; font-style: italic; }
+.modal-close {
+    background: none; border: none; color: #6B7A99;
+    font-size: 1.2rem; cursor: pointer; padding: 0 0.25rem; line-height: 1;
+    transition: color 0.15s; flex-shrink: 0; margin-left: 1rem; margin-top: 0.1rem;
+}
+.modal-close:hover { color: #E8EDF5; }
+
+.modal-body {
+    padding: 1.5rem 1.75rem;
+    overflow-y: auto;
+    flex: 1;
+    font-size: 0.845rem;
+    line-height: 1.65;
+    color: #2D3A52;
+}
+.modal-body h3 {
+    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: #447099;
+    margin: 1.25rem 0 0.5rem 0; border-bottom: 1px solid #E2E6EF; padding-bottom: 0.3rem;
+}
+.modal-body h3:first-child { margin-top: 0; }
+.modal-body p { margin-bottom: 0.75rem; }
+.modal-body p:last-child { margin-bottom: 0; }
+.modal-body ul { padding-left: 1.3rem; margin-bottom: 0.75rem; }
+.modal-body li { margin-bottom: 0.3rem; }
+.modal-body strong { font-weight: 600; color: #1C2333; }
+
+.modal-warning {
+    background: #FFF3E0; border: 1px solid #FFB74D;
+    border-left: 4px solid #F57C00;
+    border-radius: 0 6px 6px 0;
+    padding: 0.65rem 0.85rem; margin-bottom: 0.75rem;
+    font-size: 0.82rem; color: #3E2723; line-height: 1.5;
+}
+.modal-warning strong { color: #BF360C; }
+
+.modal-contact {
+    background: #EEF4FA; border: 1px solid #C5D8EC;
+    border-radius: 6px; padding: 0.65rem 0.85rem;
+    font-size: 0.82rem; color: #2D4A63;
+}
+.modal-contact a { color: #447099; text-decoration: none; font-weight: 600; }
+.modal-contact a:hover { text-decoration: underline; }
+
+.modal-footer {
+    background: #F4F6F9; border-top: 1px solid #E2E6EF;
+    padding: 0.75rem 1.75rem; font-size: 0.72rem; color: #9BA8BF;
+    font-style: italic; flex-shrink: 0;
+}
+
+/* ---- What am I looking at button ---- */
+.info-btn {
+    background: none !important; border: 1px solid rgba(68,112,153,0.4) !important;
+    color: #447099 !important; border-radius: 5px !important;
+    padding: 2px 10px !important; font-size: 0.68rem !important;
+    font-weight: 600 !important; cursor: pointer; font-family: inherit !important;
+    transition: all 0.15s; white-space: nowrap; margin-left: 0.75rem;
+}
+.info-btn:hover { background: rgba(68,112,153,0.1) !important; border-color: #447099 !important; }
+
+/* ---- Demo launchers ---- */
+.demo-launchers {
+    display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem;
+}
+.demo-btn {
+    background: #F4F6F9 !important; border: 1px solid #E2E6EF !important;
+    color: #2D3A52 !important; border-radius: 5px !important;
+    font-size: 0.71rem !important; font-weight: 500 !important;
+    padding: 0.35rem 0.6rem !important; cursor: pointer;
+    font-family: inherit !important; text-align: left !important;
+    transition: all 0.15s; line-height: 1.3;
+}
+.demo-btn:hover { background: #EEF4FA !important; border-color: #C5D8EC !important; color: #447099 !important; }
+.demo-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.demo-btn-name { font-weight: 600; display: block; }
+.demo-btn-role { font-size: 0.65rem; color: #6B7A99; display: block; }
+
+/* ---- New session button ---- */
+.new-session-btn {
+    width: 100%;
+    background: #EEF4FA !important; color: #447099 !important;
+    border: 1px solid #C5D8EC !important; border-radius: 6px !important;
+    font-size: 0.75rem !important; font-weight: 600 !important;
+    padding: 0.45rem !important; cursor: pointer;
+    font-family: inherit !important; transition: background 0.15s;
+    margin-top: 0.4rem;
+}
+.new-session-btn:hover { background: #D6E8F5 !important; }
+
+/* ---- Contact block in sidebar ---- */
+.contact-block {
+    background: #F4F6F9; border: 1px solid #E2E6EF;
+    border-radius: 6px; padding: 0.5rem 0.6rem;
+    font-size: 0.71rem; color: #4A5568; line-height: 1.6;
+}
+.contact-block a { color: #447099; text-decoration: none; font-weight: 600; display: block; }
+.contact-block a:hover { text-decoration: underline; }
+.contact-name { font-weight: 600; color: #1C2333; }
+
+/* ---- Summary loading state ---- */
+.summary-loading {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 2rem 1rem; gap: 0.75rem; color: #6B7A99;
+    font-size: 0.8rem;
+}
+.summary-loading-dots { display: flex; gap: 5px; }
+.summary-loading-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #447099;
+    animation: pulse 1.2s infinite ease-in-out;
+}
+.summary-loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.summary-loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ---- Input disabled state ---- */
+.input-row textarea:disabled {
+    opacity: 0.5; cursor: not-allowed; background: #E8EDF5 !important;
+}
+
+/* Name warning */
+.name-warning {
+    font-size: 0.68rem; color: #E65100;
+    margin-top: 0.2rem; display: none;
+}
+.name-warning.visible { display: block; }
+
 /* Shiny overrides */
 .shiny-input-container { margin-bottom: 0 !important; }
 .form-control, .selectize-input { font-family: 'IBM Plex Sans', sans-serif !important; font-size: 0.8rem !important; border-color: #CBD2E0 !important; border-radius: 6px !important; }
@@ -453,7 +608,8 @@ JS = """
 document.addEventListener('keydown', function(e) {
     if (e.target.id === 'user_input' && e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        document.getElementById('send_btn').click();
+        const btn = document.getElementById('send_btn');
+        if (btn && !btn.disabled) btn.click();
     }
 });
 
@@ -519,6 +675,40 @@ function toggleSummaryFormat(format) {
     const btn = document.getElementById('fmt-' + format);
     if (btn) btn.classList.add('active');
 }
+
+// Info modal
+function openInfoModal() {
+    const m = document.getElementById('info-modal');
+    if (m) m.classList.add('open');
+}
+function closeInfoModal() {
+    const m = document.getElementById('info-modal');
+    if (m) m.classList.remove('open');
+}
+// Close on overlay click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('info-modal');
+    if (modal && e.target === modal) closeInfoModal();
+});
+// Close on Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeInfoModal();
+});
+
+// Demo launcher — inject message and trigger send
+function launchDemo(name, role, message) {
+    if (window.Shiny) {
+        Shiny.setInputValue('demo_launch', { name: name, role: role, message: message }, { priority: 'event' });
+    }
+}
+
+// Set input disabled state
+function setInputDisabled(disabled) {
+    const ta  = document.getElementById('user_input');
+    const btn = document.getElementById('send_btn');
+    if (ta)  ta.disabled = disabled;
+    if (btn) btn.disabled = disabled;
+}
 """
 
 # ===========================================================================
@@ -533,18 +723,128 @@ ROLES = [
     ("UAT Tester",                            "UAT Tester"),
 ]
 
+MODAL_HTML = ui.div(
+    {"class": "modal-overlay", "id": "info-modal"},
+    ui.div({"class": "modal-box"},
+        # Header
+        ui.div({"class": "modal-header"},
+            ui.div(
+                ui.div({"class": "modal-header-title"}, "Posit Cloud Implementation Assistant"),
+                ui.div({"class": "modal-header-sub"}, "A self-service guide for your Posit Cloud implementation"),
+            ),
+            ui.tags.button("✕", {"class": "modal-close", "onclick": "closeInfoModal()"}),
+        ),
+        # Body
+        ui.div({"class": "modal-body"},
+
+            ui.tags.h3("What this is"),
+            ui.tags.p(
+                "This tool is your on-demand implementation resource during your Posit Cloud deployment "
+                "at State University Research Computing. Instead of waiting for your PS team to be available, "
+                "you can get answers to common implementation questions, check on project status, and work "
+                "through tasks — right here, right now."
+            ),
+            ui.div({"class": "modal-warning"},
+                ui.tags.strong("This assistant is a starting point, not a final authority."),
+                " Your PS lead, Meredith Callahan, is the ultimate source of truth on all things related "
+                "to your implementation. If anything this tool tells you doesn't feel right, contradicts "
+                "something Meredith has told you, or leaves you uncertain — stop and reach out to her directly. "
+                "Always. No exceptions."
+            ),
+            ui.tags.p(
+                "Every conversation is summarized and shared with Meredith automatically, so she always has "
+                "full context on where you are. You'll never need to repeat yourself when you connect with her directly."
+            ),
+
+            ui.tags.h3("Who it's for"),
+            ui.tags.ul(
+                ui.tags.li(ui.HTML("<strong>IT Admins</strong> — SSO configuration, account provisioning, resource limits, space setup")),
+                ui.tags.li(ui.HTML("<strong>Project Managers</strong> — milestone status, task ownership, timeline questions")),
+                ui.tags.li(ui.HTML("<strong>Executive Sponsors</strong> — high-level project health, upcoming decisions, go/no-go readiness")),
+                ui.tags.li(ui.HTML("<strong>Researchers</strong> — getting started, creating projects, uploading data, understanding your environment")),
+                ui.tags.li(ui.HTML("<strong>UAT Testers</strong> — running the UAT checklist, documenting issues, escalation paths")),
+            ),
+
+            ui.tags.h3("What it knows"),
+            ui.tags.p("The assistant has access to three things — and only these three things:"),
+            ui.tags.ul(
+                ui.tags.li(ui.HTML("<strong>Your project plan</strong> — milestones, task owners, due dates, and current status")),
+                ui.tags.li(ui.HTML("<strong>Your Statement of Work</strong> — what's in scope, what's not, and the acceptance criteria")),
+                ui.tags.li(ui.HTML("<strong>Posit Cloud task guides</strong> — step-by-step instructions for the most common implementation tasks")),
+            ),
+            ui.tags.p(
+                "It will not speculate, guess, or make things up. If it doesn't know the answer, it will tell you "
+                "— and offer to flag it for Meredith."
+            ),
+            ui.div({"class": "modal-warning"},
+                ui.tags.strong("When in doubt about any answer this tool gives you,"),
+                " treat it as a starting point and confirm with your PS lead before acting on it."
+            ),
+
+            ui.tags.h3("What it won't do"),
+            ui.tags.ul(
+                ui.tags.li("Make any changes to your systems or configuration"),
+                ui.tags.li("Answer questions about pricing, contracts, or licensing"),
+                ui.tags.li("Commit to scope changes or new deliverables"),
+                ui.tags.li("Override guidance your PS team has already given you"),
+            ),
+            ui.div({"class": "modal-warning"},
+                ui.tags.strong("If this tool ever appears to contradict something Meredith or the PS team has told you,"),
+                " disregard the tool and contact Meredith immediately. The PS team's guidance always takes precedence."
+            ),
+
+            ui.tags.h3("How escalation works"),
+            ui.tags.p(
+                "If you get stuck, feel like you're going in circles, or simply want a human in the loop — "
+                "don't hesitate. You don't need a reason to escalate. Just say \"I'd like to escalate this\" "
+                "or \"Can you get Meredith involved?\" and the assistant will generate a structured handoff "
+                "summary you can share with her instantly."
+            ),
+            ui.div({"class": "modal-warning"},
+                ui.tags.strong("When in doubt, escalate."),
+                " Meredith would rather hear from you early than have you operate on uncertain information."
+            ),
+            ui.div({"class": "modal-contact"},
+                "Contact your PS lead directly at any time:",
+                ui.tags.a(
+                    "meredith.flaring453@passmail.net",
+                    {"href": "mailto:meredith.flaring453@passmail.net"}
+                ),
+            ),
+
+            ui.tags.h3("How to use it"),
+            ui.tags.ul(
+                ui.tags.li("Enter your name and select your role in the left sidebar"),
+                ui.tags.li("Ask your question or describe what you're trying to do"),
+                ui.tags.li(ui.HTML("When you're done, click <strong>End Session</strong> — a PS-facing summary is generated automatically")),
+            ),
+        ),
+        # Footer
+        ui.div({"class": "modal-footer"},
+            "This tool is a Posit Professional Services pilot. It is intended to support — not replace — your PS team. "
+            "Content is specific to the SURC implementation. Meredith Callahan remains the authoritative source "
+            "on all aspects of your implementation."
+        ),
+    ),
+)
+
 app_ui = ui.page_fixed(
     ui.tags.head(
         ui.tags.style(CSS),
         ui.tags.script(JS),
     ),
+    # Info modal (rendered outside app-shell so it overlays everything)
+    MODAL_HTML,
+
     ui.div({"class": "app-shell"},
 
-        # ---- TOP BAR (no version number) ----
+        # ---- TOP BAR ----
         ui.div({"class": "top-bar"},
             ui.div({"class": "top-bar-logo"}, "Posit"),
             ui.div({"class": "top-bar-title"}, "Cloud Implementation Assistant"),
             ui.div({"class": "top-bar-sub"}, "State University Research Computing"),
+            ui.tags.button("? What am I looking at",
+                {"class": "info-btn", "onclick": "openInfoModal()"}),
             ui.div({"class": "top-bar-badge"}, "MVP Pilot"),
         ),
 
@@ -552,6 +852,8 @@ app_ui = ui.page_fixed(
         ui.div({"class": "left-sidebar"},
             ui.div({"class": "sidebar-label"}, "Your Name"),
             ui.input_text("customer_name", None, placeholder="Enter your name"),
+            ui.div({"class": "name-warning", "id": "name-warning"},
+                "Please enter your name before starting."),
 
             ui.div({"class": "sidebar-label"}, "Your Role"),
             ui.input_select("customer_role", None,
@@ -565,6 +867,32 @@ app_ui = ui.page_fixed(
 
             ui.tags.hr({"class": "sidebar-divider"}),
             ui.input_action_button("end_session", "End Session", class_="end-btn"),
+            ui.input_action_button("new_session", "↺ New Session", class_="new-session-btn"),
+            ui.tags.hr({"class": "sidebar-divider"}),
+
+            # Demo launchers
+            ui.div({"class": "sidebar-label"}, "Demo Quick-Start"),
+            ui.div({"class": "demo-launchers"},
+                ui.tags.button(
+                    ui.span({"class": "demo-btn-name"}, "Derek Huang"),
+                    ui.span({"class": "demo-btn-role"}, "IT Admin / Technical Lead"),
+                    {"class": "demo-btn", "id": "demo-derek",
+                     "onclick": "launchDemo('Derek Huang','IT Admin / Technical Lead','Hi — I\\'m Derek, the IT Admin. I need help setting the default resource limits for researchers. Can you walk me through it?')"},
+                ),
+                ui.tags.button(
+                    ui.span({"class": "demo-btn-name"}, "Dr. Kim Osei"),
+                    ui.span({"class": "demo-btn-role"}, "Executive Sponsor"),
+                    {"class": "demo-btn", "id": "demo-kim",
+                     "onclick": "launchDemo('Dr. Kim Osei','Executive Sponsor / Research Director','Hi, I\\'m Dr. Osei — Research Computing Director. Can you give me a quick status update on where we stand with the implementation?')"},
+                ),
+                ui.tags.button(
+                    ui.span({"class": "demo-btn-name"}, "UAT Tester"),
+                    ui.span({"class": "demo-btn-role"}, "UAT Tester"),
+                    {"class": "demo-btn", "id": "demo-uat",
+                     "onclick": "launchDemo('UAT Tester','UAT Tester','I\\'m running UAT for the pilot group. Can you walk me through the full checklist and what I need to verify?')"},
+                ),
+            ),
+
             ui.tags.hr({"class": "sidebar-divider"}),
 
             # Implementation meta
@@ -577,6 +905,18 @@ app_ui = ui.page_fixed(
 
             # Task sections (collapsible, Monday-ready)
             ui.output_ui("sidebar_tasks_ui"),
+
+            ui.tags.hr({"class": "sidebar-divider"}),
+
+            # Contact block
+            ui.div({"class": "sidebar-label"}, "Contact PS Lead"),
+            ui.div({"class": "contact-block"},
+                ui.span({"class": "contact-name"}, "Meredith Callahan"),
+                ui.tags.a(
+                    "meredith.flaring453@passmail.net",
+                    {"href": "mailto:meredith.flaring453@passmail.net"},
+                ),
+            ),
         ),
 
         # ---- MAIN CHAT PANEL ----
@@ -626,20 +966,21 @@ app_ui = ui.page_fixed(
 def server(input, output, session):
 
     # ---- State ----
-    messages         = reactive.value([])
-    started          = reactive.value(False)
-    ended            = reactive.value(False)
-    start_ts         = reactive.value(None)
-    escalated        = reactive.value(False)
+    messages           = reactive.value([])
+    started            = reactive.value(False)
+    ended              = reactive.value(False)
+    start_ts           = reactive.value(None)
+    escalated          = reactive.value(False)
     # List of handoff dicts: {"id": int, "text": str, "ts": str}
-    handoff_entries  = reactive.value([])
-    session_summary  = reactive.value("")
-    email_summary    = reactive.value("")
-    is_thinking      = reactive.value(False)
-    msg_count        = reactive.value(0)
-    feedback_log     = reactive.value([])
-    unresolved_log   = reactive.value([])
-    scope_pending    = reactive.value(False)
+    handoff_entries    = reactive.value([])
+    session_summary    = reactive.value("")
+    email_summary      = reactive.value("")
+    summary_generating = reactive.value(False)   # loading state for PS Summary tab
+    is_thinking        = reactive.value(False)
+    msg_count          = reactive.value(0)
+    feedback_log       = reactive.value([])
+    unresolved_log     = reactive.value([])
+    scope_pending      = reactive.value(False)
 
     # Topic-aware escalation tracker (one instance per session)
     tracker = TopicEscalationTracker()
@@ -841,6 +1182,17 @@ def server(input, output, session):
     def summary_panel_ui():
         s = session_summary()
         e = email_summary()
+        generating = summary_generating()
+
+        if generating:
+            return ui.div({"class": "summary-loading"},
+                ui.div({"class": "summary-loading-dots"},
+                    ui.div({"class": "summary-loading-dot"}),
+                    ui.div({"class": "summary-loading-dot"}),
+                    ui.div({"class": "summary-loading-dot"}),
+                ),
+                ui.div("Generating session summary…"),
+            )
         if not s:
             return ui.div({"class": "panel-empty"},
                 "Session summary will appear here when the session ends.",
@@ -966,6 +1318,97 @@ def server(input, output, session):
             *entry_elements,
         )
 
+    # ---- New Session button ----
+    @reactive.effect
+    @reactive.event(input.new_session)
+    def handle_new_session():
+        """Reset all state for a fresh session without page reload."""
+        messages.set([])
+        started.set(False)
+        ended.set(False)
+        start_ts.set(None)
+        escalated.set(False)
+        handoff_entries.set([])
+        session_summary.set("")
+        email_summary.set("")
+        summary_generating.set(False)
+        is_thinking.set(False)
+        msg_count.set(0)
+        feedback_log.set([])
+        unresolved_log.set([])
+        scope_pending.set(False)
+        tracker.reset()
+        ui.update_text("user_input", value="")
+
+    # ---- Demo launcher handler ----
+    @reactive.effect
+    @reactive.event(input.demo_launch)
+    def handle_demo_launch():
+        """Inject name, role, and opening message from a demo quick-start button."""
+        evt = input.demo_launch()
+        if not evt:
+            return
+        name    = evt.get("name", "")
+        role    = evt.get("role", "")
+        message = evt.get("message", "")
+
+        # Reset if already started
+        messages.set([])
+        started.set(False)
+        ended.set(False)
+        start_ts.set(None)
+        escalated.set(False)
+        handoff_entries.set([])
+        session_summary.set("")
+        email_summary.set("")
+        summary_generating.set(False)
+        is_thinking.set(False)
+        msg_count.set(0)
+        feedback_log.set([])
+        unresolved_log.set([])
+        scope_pending.set(False)
+        tracker.reset()
+
+        ui.update_text("customer_name", value=name)
+        ui.update_select("customer_role", selected=role)
+
+        if not message:
+            return
+
+        started.set(True)
+        start_ts.set(datetime.now().strftime("%Y-%m-%d %H:%M"))
+        is_thinking.set(True)
+
+        ts  = datetime.now().strftime("%H:%M")
+        mid = 1
+        msg_count.set(mid)
+        messages.set([{"role": "user", "content": message, "ts": ts, "id": f"msg_{mid}"}])
+
+        sys_prompt = build_system_prompt(
+            customer_name=name, customer_role=role, is_first_message=True)
+        try:
+            response_text = call_claude(
+                messages=[{"role": "user", "content": message}],
+                system_prompt=sys_prompt)
+            is_thinking.set(False)
+            source = extract_source_badge(response_text)
+            ts2  = datetime.now().strftime("%H:%M")
+            mid2 = 2
+            msg_count.set(mid2)
+            messages.set(messages() + [{
+                "role": "assistant", "content": response_text,
+                "ts": ts2, "id": f"msg_{mid2}", "source_badge": source,
+            }])
+        except Exception as e:
+            is_thinking.set(False)
+            mid2 = 2
+            msg_count.set(mid2)
+            messages.set(messages() + [{
+                "role": "assistant", "content": _friendly_error(str(e)),
+                "ts": datetime.now().strftime("%H:%M"),
+                "id": f"msg_{mid2}", "is_system": True,
+            }])
+
     # ---- Feedback handler ----
     @reactive.effect
     @reactive.event(input.feedback_event)
@@ -1074,6 +1517,15 @@ def server(input, output, session):
         if not user_text or not user_text.strip():
             return
 
+        # Name guard — soft prompt, not hard block
+        customer_name = input.customer_name() or ""
+        if not customer_name.strip() and not started():
+            ui.insert_ui(
+                ui.tags.script("document.getElementById('name-warning').classList.add('visible')"),
+                selector="body", where="beforeEnd"
+            )
+            # Continue anyway — don't block the user
+
         ui.update_text("user_input", value="")
 
         if not started():
@@ -1107,12 +1559,17 @@ def server(input, output, session):
             "role": "user", "content": user_text, "ts": ts, "id": f"msg_{mid}",
         }])
 
+        # Disable input while thinking
         is_thinking.set(True)
+        ui.insert_ui(
+            ui.tags.script("setInputDisabled(true)"),
+            selector="body", where="beforeEnd"
+        )
 
         is_first = len([m for m in messages() if m["role"] == "assistant"]) == 0
         api_msgs  = [{"role": m["role"], "content": m["content"]} for m in messages()]
         sys_prompt = build_system_prompt(
-            customer_name=input.customer_name() or "",
+            customer_name=customer_name,
             customer_role=current_role or "",
             is_first_message=is_first,
         )
@@ -1120,6 +1577,10 @@ def server(input, output, session):
         try:
             response_text = call_claude(messages=api_msgs, system_prompt=sys_prompt)
             is_thinking.set(False)
+            ui.insert_ui(
+                ui.tags.script("setInputDisabled(false)"),
+                selector="body", where="beforeEnd"
+            )
 
             # Natural language end detection from model
             if "TRIGGER_SESSION_END" in response_text:
@@ -1164,14 +1625,15 @@ def server(input, output, session):
 
         except Exception as e:
             is_thinking.set(False)
+            ui.insert_ui(
+                ui.tags.script("setInputDisabled(false)"),
+                selector="body", where="beforeEnd"
+            )
             mid_e = msg_count() + 1
             msg_count.set(mid_e)
             messages.set(messages() + [{
                 "role": "assistant",
-                "content": (
-                    "I encountered an error connecting to the assistant backend. "
-                    f"Please try again or contact your PS lead directly.\n\nDetail: {str(e)}"
-                ),
+                "content": _friendly_error(str(e)),
                 "ts": datetime.now().strftime("%H:%M"),
                 "id": f"msg_{mid_e}", "is_system": True,
             }])
@@ -1189,10 +1651,33 @@ def server(input, output, session):
             return
         ended.set(True)
 
+        # Show loading state in PS Summary tab immediately
+        summary_generating.set(True)
+
+        # Add closing message to chat first
+        ts  = datetime.now().strftime("%H:%M")
+        mid = msg_count() + 1
+        msg_count.set(mid)
+        prefix = "Got it — I'll close out our session now. " if natural_language else ""
+        messages.set(messages() + [{
+            "role": "assistant",
+            "content": (
+                prefix +
+                "**Session ended.** Generating your PS Summary now — "
+                "it will appear in the PS Summary tab momentarily. "
+                "Meredith Callahan will have full context of what we covered today."
+            ),
+            "ts": ts, "id": f"msg_{mid}", "is_system": True,
+        }])
+
+        # Generate summary
+        customer_name = input.customer_name() or ""
+        display_name  = customer_name.strip() if customer_name.strip() else f"{current_role} — Name not provided"
+
         api_msgs = [{"role": m["role"], "content": m["content"]} for m in messages()]
         summary  = generate_session_summary(
             messages=api_msgs,
-            customer_name=input.customer_name() or "Not provided",
+            customer_name=display_name,
             customer_role=current_role or "Not specified",
             session_start=start_ts() or "Unknown",
             escalated=escalated(),
@@ -1202,20 +1687,7 @@ def server(input, output, session):
         )
         session_summary.set(summary)
         email_summary.set(build_email_summary(parse_summary(summary)))
-
-        ts  = datetime.now().strftime("%H:%M")
-        mid = msg_count() + 1
-        msg_count.set(mid)
-        prefix = "Got it — I'll close out our session now. " if natural_language else ""
-        messages.set(messages() + [{
-            "role": "assistant",
-            "content": (
-                prefix +
-                "**Session ended.** A summary has been generated in the PS Summary tab. "
-                "Meredith Callahan will have full context of what we covered today."
-            ),
-            "ts": ts, "id": f"msg_{mid}", "is_system": True,
-        }])
+        summary_generating.set(False)
 
 
 # ===========================================================================
@@ -1228,6 +1700,15 @@ def extract_source_badge(text: str) -> str:
         if any(s.startswith(p) for p in ["📘 Source:", "📋 Source:", "📗 Source:", "📄 Source:"]):
             return s
     return ""
+
+
+def _friendly_error(detail: str) -> str:
+    return (
+        "Something went wrong connecting to the assistant. Please try again in a moment.\n\n"
+        "If this keeps happening, contact your PS lead directly:\n"
+        "**Meredith Callahan** — meredith.flaring453@passmail.net\n\n"
+        f"_(Technical detail: {detail[:200]})_"
+    )
 
 
 def parse_summary(raw: str) -> dict:
