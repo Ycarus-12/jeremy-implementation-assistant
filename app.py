@@ -358,8 +358,8 @@ body {
 .tab-btn:hover:not(.active) { color: #1C2333; }
 
 .tab-content { padding: 1rem; flex: 1; overflow-y: auto; }
-.tab-pane { display: none; }
-.tab-pane.active { display: block; }
+.tab-pane { display: none !important; }
+.tab-pane.active { display: block !important; }
 
 .panel-empty {
     color: #9BA8BF; font-size: 0.78rem; text-align: center;
@@ -623,14 +623,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cw) chatObserver.observe(cw, { childList: true, subtree: true });
 });
 
-// Tab switching
+// Tab switching — CSS !important controls display, JS only manages .active class
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     const btn  = document.querySelector('[data-tab="' + tab + '"]');
     const pane = document.getElementById('pane-' + tab);
     if (btn)  btn.classList.add('active');
-    if (pane) { pane.classList.add('active'); pane.style.display = 'block'; }
+    if (pane) pane.classList.add('active');
+}
+
+// Auto-switch to Escalation tab when first escalation entry appears
+function autoSwitchToEscalation() {
+    switchTab('escalation');
 }
 
 // Collapsible task sections
@@ -950,9 +955,9 @@ app_ui = ui.page_fixed(
                      "onclick": "switchTab('escalation')"}),
             ),
             ui.div({"class": "tab-content"},
-                ui.div({"id": "pane-summary", "class": "tab-pane active", "style": "display:block"},
+                ui.div({"id": "pane-summary", "class": "tab-pane active"},
                     ui.output_ui("summary_panel_ui")),
-                ui.div({"id": "pane-escalation", "class": "tab-pane", "style": "display:none"},
+                ui.div({"id": "pane-escalation", "class": "tab-pane"},
                     ui.output_ui("escalation_panel_ui")),
             ),
         ),
@@ -1489,9 +1494,17 @@ def server(input, output, session):
 
         ts  = datetime.now().strftime("%H:%M")
         eid = len(handoff_entries()) + 1
+        is_first_escalation = eid == 1
 
         # Append to handoff entries (drives Escalation tab)
         handoff_entries.set(handoff_entries() + [{"id": eid, "text": handoff, "ts": ts}])
+
+        # Auto-switch to Escalation tab on first escalation so user sees it
+        if is_first_escalation:
+            ui.insert_ui(
+                ui.tags.script("autoSwitchToEscalation()"),
+                selector="body", where="beforeEnd"
+            )
 
         # Add ONCE to chat
         mid = msg_count() + 1
