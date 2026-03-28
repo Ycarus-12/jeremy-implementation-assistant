@@ -1556,13 +1556,13 @@ def server(input, output, session):
             _close_session(current_role, natural_language=True)
             return
 
-        # Explicit escalation request
-        if check_explicit_escalation(user_text) and not escalated():
+        # Explicit escalation request — allowed any number of times
+        if check_explicit_escalation(user_text):
             _do_escalate()
             return
 
         # Scope question — offer choice, not auto-escalate
-        is_scope_q = check_scope_question(user_text) and not escalated()
+        is_scope_q = check_scope_question(user_text)
 
         # Add user message
         ts  = datetime.now().strftime("%H:%M")
@@ -1614,8 +1614,8 @@ def server(input, output, session):
                 ulog = unresolved_log() + [user_text[:120]]
                 unresolved_log.set(ulog)
 
-            # Topic-aware escalation suggestion (not trigger)
-            suggest_esc = tracker.update(user_text, response_text) and not escalated()
+            # Topic-aware escalation suggestion (not trigger) — allowed any number of times
+            suggest_esc = tracker.update(user_text, response_text)
 
             source = extract_source_badge(response_text)
 
