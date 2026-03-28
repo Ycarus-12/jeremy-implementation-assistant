@@ -1478,16 +1478,23 @@ def server(input, output, session):
         escalated.set(True)
         scope_pending.set(False)
 
-        # Remove any pending choice flags from messages
-        msgs = messages()
-        cleaned = []
-        for m in msgs:
-            cleaned.append({**m, "scope_choice": False, "suggest_escalation": False})
+        # Snapshot the real conversation BEFORE cleaning flags
+        # Filter out is_system messages — those are UI scaffolding, not conversation
+        real_conversation = [
+            {"role": m["role"], "content": m["content"]}
+            for m in messages()
+            if not m.get("is_system")
+            and m["role"] in ("user", "assistant")
+            and m.get("content", "").strip()
+        ]
+
+        # Now clean display flags from messages list
+        cleaned = [{**m, "scope_choice": False, "suggest_escalation": False}
+                   for m in messages()]
         messages.set(cleaned)
 
-        api_msgs = [{"role": m["role"], "content": m["content"]} for m in messages()]
-        handoff  = generate_handoff_summary(
-            messages=api_msgs,
+        handoff = generate_handoff_summary(
+            messages=real_conversation,
             customer_name=input.customer_name() or "Not provided",
             customer_role=input.customer_role() or "Not specified",
         )
@@ -1579,8 +1586,15 @@ def server(input, output, session):
             selector="body", where="beforeEnd"
         )
 
-        is_first = len([m for m in messages() if m["role"] == "assistant"]) == 0
-        api_msgs  = [{"role": m["role"], "content": m["content"]} for m in messages()]
+        # Only send real conversation turns to Claude — exclude UI system messages
+        is_first  = len([m for m in messages() if m["role"] == "assistant" and not m.get("is_system")]) == 0
+        api_msgs  = [
+            {"role": m["role"], "content": m["content"]}
+            for m in messages()
+            if not m.get("is_system")
+            and m["role"] in ("user", "assistant")
+            and m.get("content", "").strip()
+        ]
         sys_prompt = build_system_prompt(
             customer_name=customer_name,
             customer_role=current_role or "",
@@ -1683,13 +1697,20 @@ def server(input, output, session):
             "ts": ts, "id": f"msg_{mid}", "is_system": True,
         }])
 
-        # Generate summary
+        # Generate summary — filter out is_system UI messages, only real conversation
         customer_name = input.customer_name() or ""
         display_name  = customer_name.strip() if customer_name.strip() else f"{current_role} — Name not provided"
 
-        api_msgs = [{"role": m["role"], "content": m["content"]} for m in messages()]
-        summary  = generate_session_summary(
-            messages=api_msgs,
+        real_conversation = [
+            {"role": m["role"], "content": m["content"]}
+            for m in messages()
+            if not m.get("is_system")
+            and m["role"] in ("user", "assistant")
+            and m.get("content", "").strip()
+        ]
+
+        summary = generate_session_summary(
+            messages=real_conversation,
             customer_name=display_name,
             customer_role=current_role or "Not specified",
             session_start=start_ts() or "Unknown",
