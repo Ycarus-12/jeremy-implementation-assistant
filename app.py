@@ -629,55 +629,102 @@ MODAL_HTML = ui.div(
         ui.div({"class": "modal-header"},
             ui.div(
                 ui.div({"class": "modal-header-title"}, "Posit Cloud Implementation Assistant"),
-                ui.div({"class": "modal-header-sub"}, "A self-service guide for your Posit Cloud implementation"),
+                ui.div({"class": "modal-header-sub"}, "A proof-of-concept built to start a conversation"),
             ),
             ui.tags.button("✕", {"class": "modal-close", "onclick": "closeInfoModal()"}),
         ),
         ui.div({"class": "modal-body"},
-            ui.tags.h3("What this is"),
-            ui.tags.p("This tool is your on-demand implementation resource during your Posit Cloud deployment at State University Research Computing. Instead of waiting for your PS team to be available, you can get answers to common implementation questions, check on project status, and work through tasks — right here, right now."),
-            ui.div({"class": "modal-warning"}, ui.tags.strong("This assistant is a starting point, not a final authority."), " Your PS lead, Meredith Callahan, is the ultimate source of truth on all things related to your implementation. If anything this tool tells you doesn't feel right, contradicts something Meredith has told you, or leaves you uncertain — stop and reach out to her directly. Always. No exceptions."),
-            ui.tags.p("Every conversation is summarized and shared with Meredith automatically, so she always has full context on where you are. You'll never need to repeat yourself when you connect with her directly."),
-            ui.tags.h3("Who it's for"),
-            ui.tags.ul(
-                ui.tags.li(ui.HTML("<strong>IT Admins</strong> — SSO configuration, account provisioning, resource limits, space setup")),
-                ui.tags.li(ui.HTML("<strong>Project Managers</strong> — milestone status, task ownership, timeline questions")),
-                ui.tags.li(ui.HTML("<strong>Executive Sponsors</strong> — high-level project health, upcoming decisions, go/no-go readiness")),
-                ui.tags.li(ui.HTML("<strong>Researchers</strong> — getting started, creating projects, uploading data, understanding your environment")),
-                ui.tags.li(ui.HTML("<strong>UAT Testers</strong> — running the UAT checklist, documenting issues, escalation paths")),
+
+            ui.tags.h3("Hey Posit — this one's for you"),
+            ui.tags.p(
+                "If you're reading this, you're probably on the hiring team, and I built this specifically "
+                "to get your attention. (Is it working? I genuinely have no idea, but here we are.) "
+                "This is a working proof-of-concept of an AI-powered implementation assistant — "
+                "the kind of tool your Professional Services team could be using with customers right now."
             ),
-            ui.tags.h3("What it knows"),
-            ui.tags.p("The assistant has access to three things — and only these three things:"),
-            ui.tags.ul(
-                ui.tags.li(ui.HTML("<strong>Your project plan</strong> — milestones, task owners, due dates, and current status")),
-                ui.tags.li(ui.HTML("<strong>Your Statement of Work</strong> — what's in scope, what's not, and the acceptance criteria")),
-                ui.tags.li(ui.HTML("<strong>Posit Cloud task guides</strong> — step-by-step instructions for the most common implementation tasks")),
+            ui.tags.p(
+                "It's not a mockup. It's not a slide deck. It actually connects to Claude via the Anthropic API, "
+                "it's actually trained on real Posit Cloud documentation, and it's actually operating under a "
+                "fictional-but-realistic customer project plan modeled on what I imagine a university research "
+                "computing implementation looks like at Posit. The knowledge base was researched and validated "
+                "against docs.posit.co. The project plan, SOW, task guides, and persona logic are all custom-built "
+                "for this demo. It's doing real work."
             ),
-            ui.tags.p("It will not speculate, guess, or make things up. If it doesn't know the answer, it will tell you — and offer to flag it for Meredith."),
-            ui.div({"class": "modal-warning"}, ui.tags.strong("When in doubt about any answer this tool gives you,"), " treat it as a starting point and confirm with your PS lead before acting on it."),
-            ui.tags.h3("What it won't do"),
-            ui.tags.ul(
-                ui.tags.li("Make any changes to your systems or configuration"),
-                ui.tags.li("Answer questions about pricing, contracts, or licensing"),
-                ui.tags.li("Commit to scope changes or new deliverables"),
-                ui.tags.li("Override guidance your PS team has already given you"),
+
+            ui.tags.h3("What this demonstrates"),
+            ui.tags.p(
+                "The PS team at any professional services organization spends a significant portion of its time "
+                "answering questions that are routine, repeatable, and well-documented — but that still require "
+                "a human to field them. This tool offloads that work."
             ),
-            ui.div({"class": "modal-warning"}, ui.tags.strong("If this tool ever appears to contradict something Meredith or the PS team has told you,"), " disregard the tool and contact Meredith immediately. The PS team's guidance always takes precedence."),
-            ui.tags.h3("How escalation works"),
-            ui.tags.p("If you get stuck, feel like you're going in circles, or simply want a human in the loop — don't hesitate. You don't need a reason to escalate. Just say \"I'd like to escalate this\" or \"Can you get Meredith involved?\" and the assistant will generate a structured handoff summary you can share with her instantly."),
-            ui.div({"class": "modal-warning"}, ui.tags.strong("When in doubt, escalate."), " Meredith would rather hear from you early than have you operate on uncertain information."),
-            ui.div({"class": "modal-contact"},
-                "Contact your PS lead directly at any time: ",
-                ui.tags.a("meredith.flaring453@passmail.net", {"href": "mailto:meredith.flaring453@passmail.net"}),
-            ),
-            ui.tags.h3("How to use it"),
             ui.tags.ul(
-                ui.tags.li("Enter your name and select your role in the left sidebar"),
-                ui.tags.li("Ask your question or describe what you're trying to do"),
-                ui.tags.li(ui.HTML("When you're done, click <strong>End Session</strong> — a PS-facing summary is generated automatically")),
+                ui.tags.li(ui.HTML("<strong>Role-aware guidance</strong> — the assistant adjusts depth and framing based on whether you're an IT admin, a project manager, an executive sponsor, or a researcher")),
+                ui.tags.li(ui.HTML("<strong>Project plan awareness</strong> — it knows what's overdue, what's coming up, and who owns what, and surfaces that context proactively")),
+                ui.tags.li(ui.HTML("<strong>Source citation</strong> — every answer cites the exact document, section, and task it's drawing from")),
+                ui.tags.li(ui.HTML("<strong>Escalation workflow</strong> — when the customer needs a human, the assistant generates a structured handoff summary so the PS lead can pick up without friction")),
+                ui.tags.li(ui.HTML("<strong>PS-facing session summaries</strong> — every session produces a structured summary for the PS team, including follow-up indicators and unresolved questions")),
+                ui.tags.li(ui.HTML("<strong>Hard guardrails</strong> — it won't speculate, commit to scope changes, discuss pricing, or contradict prior PS guidance")),
+            ),
+
+            ui.tags.h3("The value for Posit specifically"),
+            ui.tags.p(
+                "Posit's PS team works with customers who are implementing complex data science infrastructure — "
+                "often with multiple stakeholders, long timelines, and a mix of technical and non-technical users. "
+                "That's exactly the environment where a tool like this creates the most leverage:"
+            ),
+            ui.tags.ul(
+                ui.tags.li("Customers get answers instantly instead of waiting for PS availability"),
+                ui.tags.li("PS consultants stay informed without being in every conversation"),
+                ui.tags.li("Implementation quality improves because guidance is consistent and grounded in actual documentation"),
+                ui.tags.li("The PS team gets a structured record of every customer interaction — what was asked, what was answered, where people got stuck"),
+                ui.tags.li("Patterns across sessions reveal where customers struggle most, which feeds directly into better documentation and process design"),
+            ),
+            ui.tags.p(
+                "This is a force multiplier, not a replacement. The PS lead — in this demo, Meredith Callahan — "
+                "remains the authority on everything. The assistant is explicit about that, constantly."
+            ),
+
+            ui.tags.h3("What's actually working in this POC"),
+            ui.tags.p(
+                "To be clear about what 'proof of concept' means here: most of it is working. The AI connection "
+                "is live. The knowledge base is real. The project plan logic is functional. The escalation and "
+                "summary flows produce actual output. What's stubbed out for Phase 2:"
+            ),
+            ui.tags.ul(
+                ui.tags.li(ui.HTML("<strong>Monday.com integration</strong> — the project plan is hardcoded; in production it would pull live from a Monday board via API")),
+                ui.tags.li(ui.HTML("<strong>Automated delivery</strong> — session summaries and escalation handoffs are displayed in-app; in production they'd be emailed, posted to Slack, and added to the Monday project automatically")),
+                ui.tags.li(ui.HTML("<strong>Customer-uploaded project plans</strong> — right now the plan is baked in; in production each customer deployment would inject their own SOW and project plan")),
+            ),
+
+            ui.tags.h3("On AI and implementation culture"),
+            ui.tags.p(
+                "There's a broader point here beyond the tool itself. Embedding AI into implementation workflows "
+                "isn't just about efficiency — it's about changing what's possible. A PS team that has AI handling "
+                "the first line of customer questions can focus its human capacity on the work that actually requires "
+                "human judgment: complex configuration, relationship management, navigating ambiguity. "
+                "The teams that figure out how to do this well are going to look very different from the ones that don't."
+            ),
+            ui.div({"class": "modal-warning"},
+                ui.tags.strong("[ Your culture answer will be woven in here once you share it. ]"),
+                " This section will reflect your specific framing on how AI tools should be adopted into "
+                "PS team culture — not just deployed, but genuinely integrated into how the team works."
+            ),
+
+            ui.tags.h3("How to explore this"),
+            ui.tags.ul(
+                ui.tags.li("Use the Demo Quick-Start buttons on the left to launch a pre-loaded persona"),
+                ui.tags.li("Try asking about overdue tasks, SSO configuration, resource limits, or UAT"),
+                ui.tags.li("Say 'I'd like to escalate this' to see the escalation workflow"),
+                ui.tags.li("Click End Session to generate a PS-facing summary"),
+                ui.tags.li("Try the different roles — the assistant adjusts its framing for each one"),
             ),
         ),
-        ui.div({"class": "modal-footer"}, "This tool is a Posit Professional Services pilot. It is intended to support — not replace — your PS team. Content is specific to the SURC implementation. Meredith Callahan remains the authoritative source on all aspects of your implementation."),
+        ui.div({"class": "modal-footer"},
+            "Built as a demonstration for Posit's hiring process. "
+            "All Posit Cloud knowledge is sourced from docs.posit.co. "
+            "The customer scenario (State University Research Computing) is fictional. "
+            "Powered by Claude via the Anthropic API."
+        ),
     ),
 )
 
@@ -707,7 +754,7 @@ app_ui = ui.page_fixed(
             ui.div({"class": "top-bar-title"}, "Cloud Implementation Assistant"),
             ui.div({"class": "top-bar-sub"}, "State University Research Computing"),
             ui.tags.button("? What am I looking at", {"class": "info-btn", "onclick": "openInfoModal()"}),
-            ui.div({"class": "top-bar-badge"}, "MVP Pilot"),
+            ui.div({"class": "top-bar-badge"}, "Proof of Concept"),
         ),
 
         # LEFT SIDEBAR
@@ -1036,6 +1083,16 @@ def server(input, output, session):
         parsed = parse_summary(s)
         children = []
 
+        # Phase 2 auto-delivery notice
+        children.append(ui.div(
+            {"style": "background:#EEF4FA; border:1px solid #C5D8EC; border-left:3px solid #447099; "
+                      "border-radius:0 6px 6px 0; padding:0.6rem 0.85rem; margin-bottom:0.85rem; "
+                      "font-size:0.75rem; color:#2D4A63; line-height:1.5;"},
+            ui.HTML("<strong>📬 Coming in v2:</strong> This summary will be automatically emailed to your PS lead, "
+                    "posted to the team Slack channel, and added to the Monday project board for discussion — "
+                    "no copy-paste required."),
+        ))
+
         followup = parsed.get("FOLLOW_UP_INDICATORS", "None identified.")
         children.append(ui.div({"class": "followup-block"},
             ui.div({"class": "followup-label"}, "⚑ Follow-up Indicators"),
@@ -1105,6 +1162,15 @@ def server(input, output, session):
                     "Say 'I'd like to escalate this' or 'Can you get Meredith involved?' to trigger.")
             )
         items = []
+        # Phase 2 auto-delivery notice
+        items.append(ui.div(
+            {"style": "background:#FFF8E1; border:1px solid #FFD54F; border-left:3px solid #F57C00; "
+                      "border-radius:0 6px 6px 0; padding:0.6rem 0.85rem; margin-bottom:0.85rem; "
+                      "font-size:0.75rem; color:#5D4037; line-height:1.5;"},
+            ui.HTML("<strong>📬 Coming in v2:</strong> This escalation summary will be automatically emailed "
+                    "to your PS lead, posted to Slack, and added to the Monday project board as a flagged item — "
+                    "the moment escalation is triggered."),
+        ))
         for i, entry in enumerate(entries, 1):
             bid = f"copy-handoff-{entry['id']}"
             items.append(ui.div({"class": "handoff-entry"},
