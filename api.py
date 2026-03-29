@@ -47,15 +47,17 @@ SCOPE_SIGNALS = [
     "data warehouse", "on-prem", "on premises", "hybrid",
 ]
 
+# Signals that assistant couldn't answer — tightened to avoid false positives
+# on normal source-citation language like "per your PS lead"
 UNRESOLVED_SIGNALS = [
-    "i don't have that information",
+    "i don't have that information available",
     "i don't have sufficient information",
-    "your ps lead can best address",
-    "meredith callahan can best address",
     "i can't answer that",
-    "outside my knowledge",
+    "outside my knowledge boundaries",
     "not in my knowledge base",
-    "i don't know",
+    "i don't have enough information",
+    "i'm unable to answer",
+    "that's not something i can answer",
 ]
 
 
@@ -265,8 +267,14 @@ def detect_role(user_message: str) -> str | None:
 class TopicEscalationTracker:
     """
     Tracks how many consecutive exchanges on the same topic have not resolved.
-    Escalation is suggested (not triggered) when the count reaches 3.
-    The app prompts the user; only user confirmation sets escalated=True.
+    Escalation is SUGGESTED (not triggered) when count reaches 3 AND the assistant
+    signals it couldn't help. The app prompts the user; only user confirmation
+    sets escalated=True.
+
+    Deliberately conservative:
+    - Topic similarity threshold is high (60% word overlap) to avoid false matches
+    - Count must reach 3 full exchanges, not 2
+    - Assistant must explicitly signal it can't help (not just cite a PS contact)
     """
 
     def __init__(self):
@@ -274,48 +282,41 @@ class TopicEscalationTracker:
         self.count: int = 0
 
     def update(self, user_message: str, assistant_response: str) -> bool:
-        """
-        Update tracker and return True if the escalation prompt should be shown.
-        Does NOT set escalated=True — that only happens on user confirmation.
-        """
         msg = user_message.lower().strip()
 
-        # Resolution signal resets the counter
+        # Resolution signal resets
         if check_resolution_signal(user_message):
             self.count = 0
             self.current_topic = ""
             return False
 
-        # Extract a rough topic fingerprint (first 60 chars of user message)
-        topic_key = msg[:60]
+        topic_key = msg[:80]
 
         if self._same_topic(topic_key):
             self.count += 1
         else:
-            # New topic — reset
+            # New topic — reset to 1
             self.current_topic = topic_key
             self.count = 1
 
-        # Check if assistant response signals it couldn't help
-        assistant_couldnt_help = check_unresolved_response(assistant_response)
-
-        # Suggest escalation after 3 unresolved exchanges on same topic
-        if self.count >= 3 and assistant_couldnt_help:
+        # Only suggest escalation after 3+ exchanges on same topic
+        # AND assistant explicitly couldn't help (not just routine PS referral)
+        if self.count >= 3 and check_unresolved_response(assistant_response):
             return True
 
         return False
 
     def _same_topic(self, topic_key: str) -> bool:
-        """Rough topic similarity — shared 4+ word sequence or high char overlap."""
+        """Returns True only if there is strong word overlap with current topic."""
         if not self.current_topic:
             return False
-        # Simple heuristic: 40%+ character overlap with current topic
         a = set(self.current_topic.split())
         b = set(topic_key.split())
         if not a or not b:
             return False
+        # Raised from 0.35 to 0.6 to avoid false topic matches
         overlap = len(a & b) / max(len(a), len(b))
-        return overlap >= 0.35
+        return overlap >= 0.60
 
     def reset(self):
         self.current_topic = ""
