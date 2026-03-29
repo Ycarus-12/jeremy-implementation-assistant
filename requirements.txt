@@ -1,2 +1,2 @@
 shiny
-httpx
+anthropic
