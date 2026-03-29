@@ -7,7 +7,7 @@ from datetime import datetime, date
 PROJECT_PLAN = """
 ## CUSTOMER: State University Research Computing (SURC)
 ## IMPLEMENTATION: Posit Cloud — Research Deployment
-## CONTRACT START: March 3, 2026 | CONTRACT END: June 27, 2026
+## CONTRACT START: March 3, 2026 | CONTRACT END: July 4, 2026
 ## PS LEAD: Meredith Callahan | ACCOUNT EXECUTIVE: Jordan Webb
 
 ---
@@ -17,25 +17,25 @@ PROJECT_PLAN = """
 | Organization account provisioning (up to 200 seats) | PS Lead + IT Admin | Mar 13, 2026 | COMPLETE |
 | SAML/SSO configuration with university IdP (Shibboleth) | IT Admin (Derek Huang) | Mar 20, 2026 | COMPLETE |
 | Define researcher space structure (Dept spaces x4) | IT Admin + PS Lead | Mar 25, 2026 | COMPLETE |
-| Set default resource limits per researcher role | IT Admin (Derek Huang) | Mar 27, 2026 | IN PROGRESS |
-| Pilot group onboarding — 15 early adopters (Stats dept) | Derek Huang + Dr. Kim Osei | Apr 3, 2026 | NOT STARTED |
-| Pilot UAT sign-off | Derek Huang | Apr 10, 2026 | NOT STARTED |
+| Set default resource limits per researcher role | IT Admin (Derek Huang) | Apr 3, 2026 | IN PROGRESS |
+| Pilot group onboarding — 15 early adopters (Stats dept) | Derek Huang + Dr. Kim Osei | Apr 10, 2026 | NOT STARTED |
+| Pilot UAT sign-off | Derek Huang | Apr 17, 2026 | NOT STARTED |
 
 ### PHASE 2: FULL RESEARCHER ROLLOUT (Weeks 5–8)
 | Task | Owner | Due Date | Status |
 |------|-------|----------|--------|
-| Provision remaining researcher accounts (up to 185) | IT Admin | Apr 17, 2026 | NOT STARTED |
-| Deliver researcher onboarding guide (final version) | Derek Huang + PS Lead | Apr 17, 2026 | NOT STARTED |
-| Conduct live onboarding sessions (3 sessions by department) | Dr. Kim Osei + PS Lead | Apr 24, 2026 | NOT STARTED |
-| Full-population go-live | Derek Huang | May 1, 2026 | NOT STARTED |
+| Provision remaining researcher accounts (up to 185) | IT Admin | Apr 24, 2026 | NOT STARTED |
+| Deliver researcher onboarding guide (final version) | Derek Huang + PS Lead | Apr 24, 2026 | NOT STARTED |
+| Conduct live onboarding sessions (3 sessions by department) | Dr. Kim Osei + PS Lead | May 1, 2026 | NOT STARTED |
+| Full-population go-live | Derek Huang | May 8, 2026 | NOT STARTED |
 
 ### PHASE 3: TRAINING & ADOPTION (Weeks 9–12)
 | Task | Owner | Due Date | Status |
 |------|-------|----------|--------|
-| Admin training — ongoing space/user management | Derek Huang | May 15, 2026 | NOT STARTED |
-| Researcher self-service documentation published in portal | Dr. Kim Osei | May 22, 2026 | NOT STARTED |
-| 30-day adoption review with PS Lead | Derek Huang | Jun 6, 2026 | NOT STARTED |
-| Implementation close-out & handoff to CS | PS Lead | Jun 27, 2026 | NOT STARTED |
+| Admin training — ongoing space/user management | Derek Huang | May 22, 2026 | NOT STARTED |
+| Researcher self-service documentation published in portal | Dr. Kim Osei | May 29, 2026 | NOT STARTED |
+| 30-day adoption review with PS Lead | Derek Huang | Jun 13, 2026 | NOT STARTED |
+| Implementation close-out & handoff to CS | PS Lead | Jul 4, 2026 | NOT STARTED |
 
 ---
 ### KEY CONTACTS
@@ -109,7 +109,7 @@ when they first access a shared space URL.
 
 TASK_SSO_CONFIG = """
 ## TASK GUIDE: Configuring SAML/SSO with University Shibboleth IdP
-### Section: SSO Configuration | Phase 1 | Owner: Derek Huang | Due: Mar 20 (COMPLETE) | Attribute mapping: Mar 25 (OVERDUE)
+### Section: SSO Configuration | Phase 1 | Owner: Derek Huang | Due: Mar 20 (COMPLETE) | Attribute mapping: Apr 1 (OVERDUE)
 
 ### Step 1: Gather SP Values from Posit Cloud
 1. Navigate to org account > Account Settings > Security / SSO
@@ -135,13 +135,13 @@ TASK_SSO_CONFIG = """
 - Misconfigured attribute restriction can lock users out — test first
 
 ### SURC Status
-SSO completed March 20. eduPersonEntitlement attribute mapping was due Mar 25 — currently OVERDUE.
-Confirm with IdP team before pilot onboarding Apr 3.
+SSO completed March 20. eduPersonEntitlement attribute mapping was due Apr 1 — currently OVERDUE.
+Confirm with IdP team before pilot onboarding begins Apr 10.
 """
 
 TASK_RESOURCE_LIMITS = """
 ## TASK GUIDE: Setting Space and Compute Resource Limits by User Group
-### Section: Resource Configuration | Phase 1 | Owner: Derek Huang | Due: Mar 27 (IN PROGRESS)
+### Section: Resource Configuration | Phase 1 | Owner: Derek Huang | Due: Apr 3 (IN PROGRESS)
 
 ### Compute Hours Formula
 (RAM in GB + CPUs) / 2 × hours active
@@ -191,7 +191,7 @@ TASK_ONBOARDING_GUIDE = """
 - GitHub credentials must be re-entered per project
 
 ### Delivery Plan
-- Draft: no later than Apr 3
+- Draft: no later than Apr 10
 - Final: Apr 17
 - Live sessions: Apr 17–24, facilitated by Dr. Kim Osei
 """
@@ -354,14 +354,14 @@ def get_full_context() -> str:
 #   return monday_client.format_for_sidebar(tasks, today=today)
 
 _HARDCODED_TASKS = [
-    {"name": "Document SSO attribute mapping",     "due": date(2026, 3, 25), "status": "OVERDUE"},
-    {"name": "Set default resource limits",         "due": date(2026, 3, 27), "status": "IN PROGRESS"},
-    {"name": "Create 4 departmental spaces",        "due": date(2026, 3, 27), "status": "IN PROGRESS"},
-    {"name": "Identify 15 pilot researchers",       "due": date(2026, 3, 31), "status": "NOT STARTED"},
-    {"name": "Pilot group onboarding",              "due": date(2026, 4, 3),  "status": "NOT STARTED"},
-    {"name": "Pilot UAT sign-off",                  "due": date(2026, 4, 10), "status": "NOT STARTED"},
-    {"name": "Provision remaining accounts (185)",  "due": date(2026, 4, 17), "status": "NOT STARTED"},
-    {"name": "Deliver researcher onboarding guide", "due": date(2026, 4, 17), "status": "NOT STARTED"},
+    {"name": "Document SSO attribute mapping",     "due": date(2026, 4, 1),  "status": "OVERDUE"},
+    {"name": "Set default resource limits",         "due": date(2026, 4, 3),  "status": "IN PROGRESS"},
+    {"name": "Create 4 departmental spaces",        "due": date(2026, 4, 3),  "status": "IN PROGRESS"},
+    {"name": "Identify 15 pilot researchers",       "due": date(2026, 4, 7),  "status": "NOT STARTED"},
+    {"name": "Pilot group onboarding",              "due": date(2026, 4, 10), "status": "NOT STARTED"},
+    {"name": "Pilot UAT sign-off",                  "due": date(2026, 4, 17), "status": "NOT STARTED"},
+    {"name": "Provision remaining accounts (185)",  "due": date(2026, 4, 24), "status": "NOT STARTED"},
+    {"name": "Deliver researcher onboarding guide", "due": date(2026, 4, 24), "status": "NOT STARTED"},
 ]
 
 
