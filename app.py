@@ -327,14 +327,18 @@ body {
 .tab-btn.active { color: #447099; border-bottom-color: #447099; }
 .tab-btn:hover:not(.active) { color: #1C2333; }
 
-/* Tab panes — hidden by default, shown when .active */
+/* Tab panes — both always rendered for Shiny, JS controls visibility wrapper */
 .tab-content { flex: 1; overflow: hidden; position: relative; }
-.tab-pane {
+.tab-pane-wrapper {
     position: absolute; inset: 0;
     overflow-y: auto; padding: 1rem;
-    opacity: 0; pointer-events: none; transition: opacity 0.15s;
+    visibility: hidden;
+    pointer-events: none;
 }
-.tab-pane.active { opacity: 1; pointer-events: auto; }
+.tab-pane-wrapper.active {
+    visibility: visible;
+    pointer-events: auto;
+}
 
 .panel-empty {
     color: #9BA8BF; font-size: 0.78rem; text-align: center;
@@ -525,10 +529,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (cw) chatObs.observe(cw, { childList: true, subtree: true });
 });
 
-// Tab switching — pure class toggle, no style manipulation
+// Tab switching — visibility:hidden/visible so Shiny always renders both panes
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
-    document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
+    document.querySelectorAll('.tab-pane-wrapper').forEach(function(p) { p.classList.remove('active'); });
     var btn  = document.querySelector('[data-tab="' + tab + '"]');
     var pane = document.getElementById('pane-' + tab);
     if (btn)  btn.classList.add('active');
@@ -859,8 +863,8 @@ app_ui = ui.page_fixed(
                 ui.tags.button("Escalation",  {"class": "tab-btn",        "data-tab": "escalation", "onclick": "switchTab('escalation')"}),
             ),
             ui.div({"class": "tab-content"},
-                ui.div({"id": "pane-summary",    "class": "tab-pane active"}, ui.output_ui("summary_panel_ui")),
-                ui.div({"id": "pane-escalation", "class": "tab-pane"},        ui.output_ui("escalation_panel_ui")),
+                ui.div({"id": "pane-summary",    "class": "tab-pane-wrapper active"}, ui.output_ui("summary_panel_ui")),
+                ui.div({"id": "pane-escalation", "class": "tab-pane-wrapper"},        ui.output_ui("escalation_panel_ui")),
             ),
         ),
     ),
