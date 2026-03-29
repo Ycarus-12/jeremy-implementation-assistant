@@ -1,402 +1,323 @@
-# knowledge_base.py v3
-# Posit Cloud Implementation Assistant
-# v3: adds get_sidebar_tasks() with Monday.com stub
+# api.py v3
+# Anthropic API calls, topic-aware escalation, summary generation.
+# v3: topic-aware escalation tracking, rephrased handoff fields,
+#     scope dismissal never sets escalation flag.
 
-from datetime import datetime, date
+import os
+import httpx
+from datetime import datetime
 
-PROJECT_PLAN = """
-## CUSTOMER: State University Research Computing (SURC)
-## IMPLEMENTATION: Posit Cloud — Research Deployment
-## CONTRACT START: March 3, 2026 | CONTRACT END: July 4, 2026
-## PS LEAD: Meredith Callahan | ACCOUNT EXECUTIVE: Jordan Webb
-
----
-### PHASE 1: ENVIRONMENT SETUP & PILOT (Weeks 1–4)
-| Task | Owner | Due Date | Status |
-|------|-------|----------|--------|
-| Organization account provisioning (up to 200 seats) | PS Lead + IT Admin | Mar 13, 2026 | COMPLETE |
-| SAML/SSO configuration with university IdP (Shibboleth) | IT Admin (Derek Huang) | Mar 20, 2026 | COMPLETE |
-| Define researcher space structure (Dept spaces x4) | IT Admin + PS Lead | Mar 25, 2026 | COMPLETE |
-| Set default resource limits per researcher role | IT Admin (Derek Huang) | Apr 3, 2026 | IN PROGRESS |
-| Pilot group onboarding — 15 early adopters (Stats dept) | Derek Huang + Dr. Kim Osei | Apr 10, 2026 | NOT STARTED |
-| Pilot UAT sign-off | Derek Huang | Apr 17, 2026 | NOT STARTED |
-
-### PHASE 2: FULL RESEARCHER ROLLOUT (Weeks 5–8)
-| Task | Owner | Due Date | Status |
-|------|-------|----------|--------|
-| Provision remaining researcher accounts (up to 185) | IT Admin | Apr 24, 2026 | NOT STARTED |
-| Deliver researcher onboarding guide (final version) | Derek Huang + PS Lead | Apr 24, 2026 | NOT STARTED |
-| Conduct live onboarding sessions (3 sessions by department) | Dr. Kim Osei + PS Lead | May 1, 2026 | NOT STARTED |
-| Full-population go-live | Derek Huang | May 8, 2026 | NOT STARTED |
-
-### PHASE 3: TRAINING & ADOPTION (Weeks 9–12)
-| Task | Owner | Due Date | Status |
-|------|-------|----------|--------|
-| Admin training — ongoing space/user management | Derek Huang | May 22, 2026 | NOT STARTED |
-| Researcher self-service documentation published in portal | Dr. Kim Osei | May 29, 2026 | NOT STARTED |
-| 30-day adoption review with PS Lead | Derek Huang | Jun 13, 2026 | NOT STARTED |
-| Implementation close-out & handoff to CS | PS Lead | Jul 4, 2026 | NOT STARTED |
-
----
-### KEY CONTACTS
-- Derek Huang — IT Admin / Technical Lead (primary day-to-day contact)
-- Dr. Kim Osei — Research Computing Director / Executive Sponsor
-- Meredith Callahan — Posit PS Lead
-- Jordan Webb — Posit Account Executive (commercial questions only)
-"""
-
-SOW_SUMMARY = """
-## STATEMENT OF WORK SUMMARY — State University Research Computing / Posit Cloud
-
-### IN SCOPE
-- Posit Cloud organization account provisioning (up to 200 named researcher accounts)
-- Single Sign-On (SSO) configuration via SAML 2.0 with university Shibboleth IdP
-- Space structure design: up to 6 departmental shared spaces
-- Default compute resource limit configuration per user group (researcher, admin)
-- Researcher onboarding documentation (1 guide, PS-assisted, SURC-owned)
-- Up to 3 live onboarding sessions (virtual, PS-led)
-- Admin training (1 session, covering ongoing user and space management)
-- 30-day post-go-live adoption check-in
-
-### OUT OF SCOPE
-- Custom or private CRAN/Bioconductor package mirror setup
-- HPC cluster integration or hybrid on-premises/cloud architecture
-- Posit Workbench or Posit Connect deployment (separate products, not included)
-- Data pipeline or ETL configuration
-- Custom R environment pre-configuration per researcher
-- Ongoing content or package support beyond the implementation period
-- HIPAA-compliant infrastructure (Posit Cloud is not on HIPAA stack)
-- Integration with university data warehouse or institutional databases
-
-### FINAL ACCEPTANCE CRITERIA
-1. Successful SSO login by >90% of provisioned accounts
-2. All 4 departmental spaces active with appropriate member assignments
-3. Researcher onboarding guide published
-4. IT admin trained and able to manage users/spaces independently
-"""
-
-TASK_PROVISIONING = """
-## TASK GUIDE: Provisioning Researcher Accounts in Posit Cloud
-### Section: Account Setup | Phase 1
-
-### Method A: Invite via Email (small batches)
-1. Navigate to your organization account (click your icon > select SURC org name)
-2. Click "Members" in the left sidebar
-3. Click "Invite Members"
-4. Enter email addresses (comma-separated, up to 20 at a time)
-5. Assign role: set to "Contributor" for researchers
-6. Click Send Invitations
-
-### Method B: SSO Auto-Provisioning (recommended for bulk rollout)
-With Shibboleth SSO configured, users are automatically added as "Participants"
-when they first access a shared space URL.
-- To grant Contributor access, promote them from the Members list
-- Recommended: send researchers the direct space URL
-
-### Role Assignments for SURC
-| User Type | Org Role | Space Role |
-|-----------|----------|------------|
-| IT Admin (Derek) | Owner | Admin |
-| Dept Coordinator | Admin | Moderator |
-| Researcher | Contributor | Contributor |
-| Read-only observer | Participant | Viewer |
-
-### Common Issues
-- No invitation email: Check spam; re-send from Members list
-- Cannot log in via SSO: Verify NetID is in the allowed Shibboleth attribute list
-- User is "Participant" but needs to create projects: Promote to Contributor from Members list
-"""
-
-TASK_SSO_CONFIG = """
-## TASK GUIDE: Configuring SAML/SSO with University Shibboleth IdP
-### Section: SSO Configuration | Phase 1 | Owner: Derek Huang | Due: Mar 20 (COMPLETE) | Attribute mapping: Apr 1 (OVERDUE)
-
-### Step 1: Gather SP Values from Posit Cloud
-1. Navigate to org account > Account Settings > Security / SSO
-2. Note:
-   - Entity ID (SP Metadata URL)
-   - ACS URL: https://sso.posit.cloud/[org-slug]
-   - Choose your org login URL slug (e.g., "surc")
-
-### Step 2: Configure Shibboleth IdP
-- Provide SP Entity ID and ACS URL to your IdP team
-- Request signed SAML responses (required by Posit Cloud)
-- Attribute to release: eduPersonEntitlement or eduPersonPrincipalName
-
-### Step 3: Configure SSO in Posit Cloud
-1. Account Settings > Security — enter IdP Metadata URL or upload XML
-2. Enter org login URL slug
-3. Optionally restrict by attribute value
-4. Test with a single non-admin account before broad rollout
-
-### Key Constraints
-- Posit Cloud requires SIGNED SAML responses
-- SSO does not replace space invitations
-- Misconfigured attribute restriction can lock users out — test first
-
-### SURC Status
-SSO completed March 20. eduPersonEntitlement attribute mapping was due Apr 1 — currently OVERDUE.
-Confirm with IdP team before pilot onboarding begins Apr 10.
-"""
-
-TASK_RESOURCE_LIMITS = """
-## TASK GUIDE: Setting Space and Compute Resource Limits by User Group
-### Section: Resource Configuration | Phase 1 | Owner: Derek Huang | Due: Apr 3 (IN PROGRESS)
-
-### Compute Hours Formula
-(RAM in GB + CPUs) / 2 × hours active
-Example: 2 GB RAM + 1 CPU × 1 hour = 1.5 compute hours
-
-### Recommended Defaults for SURC
-| User Type | RAM | CPU | Background Exec Limit |
-|-----------|-----|-----|----------------------|
-| Standard researcher | 2 GB | 1 | 1 hour |
-| Bioinformatics researcher | 4–8 GB | 2 | 4 hours |
-| Stats/Econ researcher | 2 GB | 1 | 1 hour |
-
-### Setting Defaults via a Project Template
-1. Create a project with your desired resource settings
-2. Inside project > gear icon > Resources tab
-3. Set RAM, CPU, Background Execution Limit > Apply Changes
-4. Space > project menu > Save as Template
-
-### Restricting Contributors from Changing Resources
-1. Space > Members / Settings > Permissions
-2. Disable "Can change resources for their content" for Contributor role
-
-### Monitoring Usage
-- Account-level: Org account > Account Overview > Usage tab
-- Space-level: Space > Usage button in header
-"""
-
-TASK_ONBOARDING_GUIDE = """
-## TASK GUIDE: Preparing and Delivering the Researcher Onboarding Guide
-### Section: Onboarding Documentation | Phase 2 | Owner: Derek Huang + Dr. Kim Osei | Due: Apr 17
-
-### Recommended Guide Structure
-1. Introduction: What is Posit Cloud and why SURC is using it
-2. First Login: https://sso.posit.cloud/surc
-3. Navigating Your Space: Finding your departmental space
-4. Creating a Project: Starting from the SURC template
-5. Uploading Data: Max 500 MB per file, 20 GB per project
-6. Installing Packages: renv or install.packages()
-7. Saving Your Work: Auto-save, project persistence, export
-8. Getting Help: Derek for IT issues, dept coordinator for access
-9. Compute Limits: Compute hours explanation
-
-### Key Facts
-- Projects persist on disk even when not active
-- Compute charged to SURC, not the researcher
-- RAM is 2 GB / 1 CPU — researchers cannot change this
-- GitHub credentials must be re-entered per project
-
-### Delivery Plan
-- Draft: no later than Apr 10
-- Final: Apr 17
-- Live sessions: Apr 17–24, facilitated by Dr. Kim Osei
-"""
-
-TASK_UAT = """
-## TASK GUIDE: UAT Process for IT Admins Before Researcher Rollout
-### Section: User Acceptance Testing | Phase 1 | Owner: Derek Huang | Due: Apr 10
-
-### What to Test
-1. SSO Login Flow — login via https://sso.posit.cloud/surc, Contributor role, correct space
-2. Project Creation from Template — SURC template, 2 GB RAM / 1 CPU defaults
-3. File Upload — test CSV, appears in Files pane
-4. Basic R Execution — simple script, no crashes
-5. Resource Lock — researcher cannot change RAM/CPU
-
-### Sign-Off Criteria (all must pass)
-- [ ] 100% of pilot users log in via SSO
-- [ ] All create a project from SURC template
-- [ ] File upload + R execution work in 90%+ of sessions
-- [ ] No researcher can modify resource limits
-- [ ] Derek can view all pilot projects from admin view
-
-### Sign-Off Process
-1. Complete checklist
-2. Send confirmation to Meredith Callahan by April 10
-3. If issues remain: PS Lead + Derek agree on go/no-go
-"""
-
-PRODUCT_KNOWLEDGE = """
-## POSIT CLOUD PRODUCT KNOWLEDGE BASE
-## Source: Posit official documentation (docs.posit.co/cloud)
-
-### WHAT IS POSIT CLOUD?
-Cloud-hosted RStudio IDE and Jupyter notebooks in a browser. Each user works in
-isolated containerized projects. Hosted on AWS by Posit (formerly RStudio, Inc.).
-
-Not the same as:
-- Posit Workbench: self-hosted server software
-- Posit Connect: publishing platform for Shiny apps
-- Posit Package Manager: internal CRAN mirror tool
-
-### ACCOUNT ROLES
-Organization: Owner > Admin > Moderator > Contributor > Participant
-Space: Admin > Moderator > Contributor > Viewer
-
-### PROJECTS
-- Default: 1 GB RAM, 1 CPU
-- Max: 8 GB RAM (Standard plan); 16 GB (Premium/Instructor)
-- Disk: 20 GB per project
-- Max file upload: 500 MB
-- Idle suspension: 15 minutes
-- Max runtime: 24 hours
-
-Compute formula: (RAM GB + CPUs) / 2 × hours active
-
-### SSO
-SAML 2.0. Available on Standard and above plans.
-- Login URL: https://sso.posit.cloud/[org-slug]
-- Requires SIGNED responses from IdP
-- First login auto-creates account as Participant
-- Admins must upgrade Participants to Contributors
-
-### SECURITY
-- SSL encrypted; data encrypted at rest
-- AWS hosted — NOT HIPAA-compliant
-- GitHub credentials do not persist across projects
-
-### KNOWN LIMITATIONS FOR SURC
-- Not HIPAA-compliant
-- No custom package mirrors
-- No HPC or on-premises integration
-- Max job runtime: 24 hours
-
-### ADMIN QUICK REFERENCE
-| Task | Where |
-|------|-------|
-| Invite to org | Org account > Members > Invite Members |
-| Change member role | Org account > Members > role dropdown |
-| Create space | Sidebar > New Space |
-| Invite to space | Space > Members > Invite |
-| Set permissions | Space > Settings > Permissions |
-| View usage | Org account > Usage tab |
-| Configure SSO | Org account > Account Settings > Security |
-| Set project resources | Inside project > gear icon > Resources tab |
-| Create template | Space > project menu > Save as Template |
-"""
+API_URL = "https://api.anthropic.com/v1/messages"
+MODEL   = "claude-sonnet-4-20250514"
 
 # ---------------------------------------------------------------------------
-# Topic tags
+# Phrase lists
 # ---------------------------------------------------------------------------
-TOPIC_TAGS = [
-    "SSO", "Provisioning", "Resource Limits", "UAT", "Onboarding",
-    "Scope Question", "Project Status", "Product Question", "Escalation",
-    "Access / Roles", "Compute / Usage", "Security", "General"
+ESCALATION_PHRASES = [
+    "talk to someone", "speak to someone", "speak with meredith",
+    "contact meredith", "reach meredith", "call meredith",
+    "need help from", "need a human", "need a person",
+    "escalate", "ps team", "professional services",
+    "can someone help me", "i want to talk to",
 ]
 
+RESOLUTION_PHRASES = [
+    "got it", "that works", "that helped", "makes sense",
+    "i understand", "i see", "thank you", "thanks", "perfect",
+    "that's what i needed", "all set", "i'm good", "solved",
+    "figured it out", "i'll try that", "makes sense now",
+    "move on", "let's move on", "next question", "never mind",
+    "forget it", "not important",
+]
+
+SESSION_END_PHRASES = [
+    "end this session", "end the session", "close this session",
+    "we're done", "that's all", "that's it for now", "i'm done",
+    "wrap up", "wrap this up", "let's stop here", "stop here",
+    "finish the session", "conclude the session", "goodbye",
+    "we can end", "end our session", "let's go ahead and end",
+    "go ahead and end", "done for today", "done for now",
+]
+
+SCOPE_SIGNALS = [
+    "can we add", "can you add", "is it possible to add", "add to scope",
+    "also need", "what about adding", "we also want",
+    "not in scope", "out of scope", "in scope", "scope question",
+    "hpc", "hipaa", "package mirror", "workbench", "posit connect",
+    "data warehouse", "on-prem", "on premises", "hybrid",
+]
+
+# Signals that assistant couldn't answer — tightened to avoid false positives
+# on normal source-citation language like "per your PS lead"
+UNRESOLVED_SIGNALS = [
+    "i don't have that information available",
+    "i don't have sufficient information",
+    "i can't answer that",
+    "outside my knowledge boundaries",
+    "not in my knowledge base",
+    "i don't have enough information",
+    "i'm unable to answer",
+    "that's not something i can answer",
+]
+
+
+def get_api_key() -> str:
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable is not set.")
+    return key
+
+
+def call_claude(messages: list, system_prompt: str, max_tokens: int = 1000) -> str:
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": get_api_key(),
+        "anthropic-version": "2023-06-01",
+    }
+    body = {
+        "model": MODEL,
+        "max_tokens": max_tokens,
+        "system": system_prompt,
+        "messages": messages,
+    }
+    try:
+        resp = httpx.post(API_URL, headers=headers, json=body, timeout=60.0)
+        resp.raise_for_status()
+        data = resp.json()
+        blocks = [b["text"] for b in data.get("content", []) if b.get("type") == "text"]
+        if not blocks:
+            raise ValueError("No text content returned by API.")
+        return "\n".join(blocks)
+    except httpx.HTTPStatusError as e:
+        try:
+            detail = e.response.json().get("error", {}).get("message", str(e))
+        except Exception:
+            detail = str(e)
+        raise RuntimeError(f"Anthropic API error: {detail}") from e
+    except Exception as e:
+        raise RuntimeError(f"API request failed: {str(e)}") from e
+
+
 # ---------------------------------------------------------------------------
-# Per-role knowledge scoping
+# Handoff summary — rephrased fields
+# "Customer was trying to:" → "Goal:"
+# "What was discussed:" → "What was being discussed:"
 # ---------------------------------------------------------------------------
-ROLE_KNOWLEDGE_MAP = {
-    "IT Admin / Technical Lead": [
-        "PROJECT_PLAN", "SOW_SUMMARY", "TASK_PROVISIONING",
-        "TASK_SSO_CONFIG", "TASK_RESOURCE_LIMITS", "TASK_UAT",
-        "PRODUCT_KNOWLEDGE"
-    ],
-    "Project Lead / Project Manager": [
-        "PROJECT_PLAN", "SOW_SUMMARY", "TASK_PROVISIONING",
-        "TASK_ONBOARDING_GUIDE", "TASK_UAT", "PRODUCT_KNOWLEDGE"
-    ],
-    "Executive Sponsor / Research Director": [
-        "PROJECT_PLAN", "SOW_SUMMARY", "PRODUCT_KNOWLEDGE"
-    ],
-    "Researcher / End User": [
-        "TASK_ONBOARDING_GUIDE", "PRODUCT_KNOWLEDGE"
-    ],
-    "UAT Tester": [
-        "TASK_UAT", "TASK_PROVISIONING", "PRODUCT_KNOWLEDGE", "PROJECT_PLAN"
-    ],
-}
+def generate_handoff_summary(messages: list, customer_name: str, customer_role: str) -> str:
+    try:
+        transcript = "\n\n".join(
+            f"{'CUSTOMER' if m['role'] == 'user' else 'ASSISTANT'}: {m['content']}"
+            for m in messages
+        )
+        prompt = f"""Generate a concise escalation handoff summary based on this conversation.
+Customer: {customer_name or 'Not provided'} ({customer_role or 'Role not specified'})
 
-KNOWLEDGE_SECTIONS = {
-    "PROJECT_PLAN":          ("=== PROJECT PLAN ===", PROJECT_PLAN),
-    "SOW_SUMMARY":           ("=== STATEMENT OF WORK SUMMARY ===", SOW_SUMMARY),
-    "TASK_PROVISIONING":     ("=== TASK GUIDE: ACCOUNT PROVISIONING — Section: Account Setup | Phase 1 ===", TASK_PROVISIONING),
-    "TASK_SSO_CONFIG":       ("=== TASK GUIDE: SSO CONFIGURATION — Section: SSO Configuration | Phase 1 ===", TASK_SSO_CONFIG),
-    "TASK_RESOURCE_LIMITS":  ("=== TASK GUIDE: RESOURCE LIMITS — Section: Resource Configuration | Phase 1 ===", TASK_RESOURCE_LIMITS),
-    "TASK_ONBOARDING_GUIDE": ("=== TASK GUIDE: RESEARCHER ONBOARDING GUIDE — Section: Onboarding Documentation | Phase 2 ===", TASK_ONBOARDING_GUIDE),
-    "TASK_UAT":              ("=== TASK GUIDE: UAT PROCESS — Section: User Acceptance Testing | Phase 1 ===", TASK_UAT),
-    "PRODUCT_KNOWLEDGE":     ("=== POSIT CLOUD PRODUCT KNOWLEDGE BASE ===", PRODUCT_KNOWLEDGE),
-}
+CONVERSATION:
+{transcript}
+
+Format the output in EXACTLY this structure — no preamble, no closing remarks:
+
+Goal: [one sentence describing what the customer was trying to accomplish]
+What was being discussed: [2-3 sentences max]
+Where they got stuck: [specific blocker or unanswered question]
+Relevant project context: [milestone, due date, or task reference if applicable]"""
+
+        return call_claude(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt="You generate concise, factual escalation handoff summaries for a PS team.",
+            max_tokens=400,
+        )
+    except Exception as e:
+        return f"Handoff summary generation failed: {str(e)}"
 
 
-def get_context_for_role(role: str) -> str:
-    keys = ROLE_KNOWLEDGE_MAP.get(role, list(KNOWLEDGE_SECTIONS.keys()))
-    return "\n\n".join(
-        f"{header}\n{content}"
-        for key in keys
-        for header, content in [KNOWLEDGE_SECTIONS[key]]
-    )
+def generate_session_summary(
+    messages: list,
+    customer_name: str,
+    customer_role: str,
+    session_start: str,
+    escalated: bool,
+    handoff_text: str = "",
+    unresolved_log: list = None,
+    feedback_log: list = None,
+) -> str:
+    try:
+        transcript = "\n\n".join(
+            f"{'CUSTOMER' if m['role'] == 'user' else 'ASSISTANT'}: {m['content']}"
+            for m in messages
+        )
+        session_end    = datetime.now().strftime("%Y-%m-%d %H:%M")
+        escalated_str  = "Yes" if escalated else "No"
 
+        unresolved_str = ""
+        if unresolved_log:
+            unresolved_str = "\n\nUNRESOLVED QUESTIONS THIS SESSION:\n" + "\n".join(
+                f"- {q}" for q in unresolved_log
+            )
 
-def get_full_context() -> str:
-    return "\n\n".join(
-        f"{header}\n{content}"
-        for header, content in KNOWLEDGE_SECTIONS.values()
-    )
+        feedback_str = ""
+        if feedback_log:
+            helpful     = sum(1 for f in feedback_log if f["helpful"])
+            not_helpful = sum(1 for f in feedback_log if not f["helpful"])
+            feedback_str = f"\n\nRESPONSE FEEDBACK: {helpful} helpful, {not_helpful} not helpful"
+
+        from knowledge_base import TOPIC_TAGS
+        tags_list = ", ".join(TOPIC_TAGS)
+
+        prompt = f"""You are generating a PS-facing session summary for a Posit Cloud implementation assistant.
+This summary is for Meredith Callahan (PS Lead), NOT the customer.
+Be factual, specific, and concise. Do not speculate about customer intent.
+
+Customer name: {customer_name or 'Not provided'}
+Customer role: {customer_role or 'Not specified'}
+Session start: {session_start}
+Session end: {session_end}
+Escalated: {escalated_str}
+{feedback_str}
+{unresolved_str}
+
+CONVERSATION TRANSCRIPT:
+{transcript}
+
+Generate a session summary in EXACTLY this format. Every field is required.
+
+FOLLOW_UP_INDICATORS: [Specific signals PS should act on proactively. Be specific. If none, write "None identified."]
+DATE_TIME: {session_start} — {session_end}
+CUSTOMER: {customer_name or 'Not provided'} | {customer_role or 'Not specified'}
+OUTCOME: [Resolved / Partially Resolved / Escalated]
+TOPIC_TAGS: [Select all that apply from: {tags_list}]
+TOPICS_COVERED: [Comma-separated list]
+GUIDANCE_PROVIDED: [2-4 sentences summarizing key guidance shared]
+ESCALATION_SUMMARY: [Full handoff summary if escalated; otherwise N/A]
+UNRESOLVED_QUESTIONS: [List questions the assistant could not answer; otherwise None]
+RESPONSE_FEEDBACK: [Summary of helpful/not-helpful feedback if any; otherwise None]
+
+Keep under 400 words. No preamble or closing remarks."""
+
+        return call_claude(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt="You generate factual, structured session summaries for a PS team.",
+            max_tokens=700,
+        )
+    except Exception as e:
+        return f"Session summary generation failed: {str(e)}"
 
 
 # ---------------------------------------------------------------------------
-# Sidebar task data
+# Detection helpers
 # ---------------------------------------------------------------------------
-# Hardcoded task list — replace get_sidebar_tasks() body with Monday API
-# call when the board is stood up. The return format must stay identical:
-# a dict with keys "overdue" and "upcoming", each a list of
-# {"name": str, "due": str} dicts.
+
+def check_explicit_escalation(user_message: str) -> bool:
+    msg = user_message.lower()
+    return any(phrase in msg for phrase in ESCALATION_PHRASES)
+
+
+def check_resolution_signal(user_message: str) -> bool:
+    msg = user_message.lower()
+    return any(phrase in msg for phrase in RESOLUTION_PHRASES)
+
+
+def check_session_end_intent(user_message: str) -> bool:
+    msg = user_message.lower()
+    return any(phrase in msg for phrase in SESSION_END_PHRASES)
+
+
+def check_scope_question(user_message: str) -> bool:
+    msg = user_message.lower()
+    return any(phrase in msg for phrase in SCOPE_SIGNALS)
+
+
+def check_unresolved_response(assistant_message: str) -> bool:
+    msg = assistant_message.lower()
+    return any(phrase in msg for phrase in UNRESOLVED_SIGNALS)
+
+
+def detect_role(user_message: str) -> str | None:
+    msg = user_message.lower()
+    it_signals = ["it admin", "sysadmin", "system admin", "technical lead", "tech lead",
+                  "derek", "infrastructure", "shibboleth", "sso config", "network admin"]
+    if any(s in msg for s in it_signals):
+        return "IT Admin / Technical Lead"
+    pm_signals = ["project manager", "pm ", " pm", "project lead", "project coordinator",
+                  "implementation lead", "program manager"]
+    if any(s in msg for s in pm_signals):
+        return "Project Lead / Project Manager"
+    exec_signals = ["executive", "director", "vp ", "dean", "chief", "sponsor",
+                    "leadership", "dr. kim", "kim osei", "research director"]
+    if any(s in msg for s in exec_signals):
+        return "Executive Sponsor / Research Director"
+    uat_signals = ["uat", "user acceptance", "tester", "testing team", "qa "]
+    if any(s in msg for s in uat_signals):
+        return "UAT Tester"
+    researcher_signals = ["researcher", "faculty", "professor", "grad student", "graduate student",
+                          "postdoc", "analyst", "scientist", "end user", "i use r", "i run analyses"]
+    if any(s in msg for s in researcher_signals):
+        return "Researcher / End User"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Topic-aware escalation tracker
 #
-# TODO (Monday.com integration):
-#   import monday_client
-#   tasks = monday_client.get_tasks(board_id=MONDAY_BOARD_ID)
-#   return monday_client.format_for_sidebar(tasks, today=today)
+# Tracks consecutive unresolved exchanges PER TOPIC (derived from the last
+# user question). Resets when the user signals resolution or changes topic.
+# Never fires on scope dismissal — that is handled separately in app.py.
+# ---------------------------------------------------------------------------
 
-_HARDCODED_TASKS = [
-    {"name": "Document SSO attribute mapping",     "due": date(2026, 4, 1),  "status": "OVERDUE"},
-    {"name": "Set default resource limits",         "due": date(2026, 4, 3),  "status": "IN PROGRESS"},
-    {"name": "Create 4 departmental spaces",        "due": date(2026, 4, 3),  "status": "IN PROGRESS"},
-    {"name": "Identify 15 pilot researchers",       "due": date(2026, 4, 7),  "status": "NOT STARTED"},
-    {"name": "Pilot group onboarding",              "due": date(2026, 4, 10), "status": "NOT STARTED"},
-    {"name": "Pilot UAT sign-off",                  "due": date(2026, 4, 17), "status": "NOT STARTED"},
-    {"name": "Provision remaining accounts (185)",  "due": date(2026, 4, 24), "status": "NOT STARTED"},
-    {"name": "Deliver researcher onboarding guide", "due": date(2026, 4, 24), "status": "NOT STARTED"},
-]
-
-
-def get_sidebar_tasks(today: date = None) -> dict:
+class TopicEscalationTracker:
     """
-    Return overdue and upcoming (within 14 days) tasks for the sidebar.
+    Tracks how many consecutive exchanges on the same topic have not resolved.
+    Escalation is SUGGESTED (not triggered) when count reaches 3 AND the assistant
+    signals it couldn't help. The app prompts the user; only user confirmation
+    sets escalated=True.
 
-    Returns:
-        {
-            "overdue":  [{"name": str, "due": str}, ...],
-            "upcoming": [{"name": str, "due": str}, ...],
-        }
-
-    TODO: Replace body with Monday.com API call when board is ready.
-          Keep return format identical so sidebar rendering requires no changes.
+    Deliberately conservative:
+    - Topic similarity threshold is high (60% word overlap) to avoid false matches
+    - Count must reach 3 full exchanges, not 2
+    - Assistant must explicitly signal it can't help (not just cite a PS contact)
     """
-    if today is None:
-        today = date.today()
 
-    overdue  = []
-    upcoming = []
+    def __init__(self):
+        self.current_topic: str = ""
+        self.count: int = 0
 
-    for task in _HARDCODED_TASKS:
-        if task["status"] == "COMPLETE":
-            continue
-        due_date = task["due"]
-        due_str  = due_date.strftime("%b %-d")
+    def update(self, user_message: str, assistant_response: str) -> bool:
+        msg = user_message.lower().strip()
 
-        if due_date < today:
-            overdue.append({"name": task["name"], "due": due_str})
-        elif (due_date - today).days <= 14:
-            upcoming.append({"name": task["name"], "due": due_str})
+        # Resolution signal resets
+        if check_resolution_signal(user_message):
+            self.count = 0
+            self.current_topic = ""
+            return False
 
-    # Sort both lists by due date
-    overdue.sort(key=lambda t: t["due"])
-    upcoming.sort(key=lambda t: t["due"])
+        topic_key = msg[:80]
 
-    return {"overdue": overdue, "upcoming": upcoming}
+        if self._same_topic(topic_key):
+            self.count += 1
+        else:
+            # New topic — reset to 1
+            self.current_topic = topic_key
+            self.count = 1
+
+        # Only suggest escalation after 3+ exchanges on same topic
+        # AND assistant explicitly couldn't help (not just routine PS referral)
+        if self.count >= 3 and check_unresolved_response(assistant_response):
+            return True
+
+        return False
+
+    def _same_topic(self, topic_key: str) -> bool:
+        """Returns True only if there is strong word overlap with current topic."""
+        if not self.current_topic:
+            return False
+        a = set(self.current_topic.split())
+        b = set(topic_key.split())
+        if not a or not b:
+            return False
+        # Raised from 0.35 to 0.6 to avoid false topic matches
+        overlap = len(a & b) / max(len(a), len(b))
+        return overlap >= 0.60
+
+    def reset(self):
+        self.current_topic = ""
+        self.count = 0
