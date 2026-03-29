@@ -618,6 +618,13 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') close
 function launchDemo(name, role, msg) {
     if (window.Shiny) Shiny.setInputValue('demo_launch', {name: name, role: role, message: msg}, {priority: 'event'});
 }
+
+// Shiny custom message handler — switches tab from server side
+if (window.Shiny) {
+    Shiny.addCustomMessageHandler('switch_tab', function(data) {
+        switchTab(data.tab);
+    });
+}
 """
 
 # ===========================================================================
@@ -1287,7 +1294,8 @@ def server(input, output, session):
             "Here is a summary you can share with Meredith Callahan so she can pick up right where we left off:\n\n"
             "---\n**HANDOFF SUMMARY FOR MEREDITH CALLAHAN**\n\n" + handoff,
             is_system=False)
-        ui.notification_show("Escalation summary added — see the Escalation tab →", type="message", duration=5)
+        # Switch to escalation tab — safe single JS call via Shiny session
+        session.send_custom_message("switch_tab", {"tab": "escalation"})
 
     # ---- Send ----
     @reactive.effect
@@ -1303,17 +1311,25 @@ def server(input, output, session):
 
         ui.update_text("user_input", value="")
 
+        # Initialize session first — before any checks that depend on it
         if not started():
             started.set(True)
             start_ts.set(datetime.now().strftime("%Y-%m-%d %H:%M"))
 
         current_role = input.customer_role() or detect_role(user_text) or ""
 
+        # Natural language session end — add user message first so it's in history
         if check_session_end_intent(user_text):
+            mid = next_mid()
+            messages.set(messages() + [{"role": "user", "content": user_text,
+                                         "ts": datetime.now().strftime("%H:%M"), "id": f"msg_{mid}"}])
             _close_session(current_role, natural_language=True)
             return
 
         if check_explicit_escalation(user_text):
+            mid = next_mid()
+            messages.set(messages() + [{"role": "user", "content": user_text,
+                                         "ts": datetime.now().strftime("%H:%M"), "id": f"msg_{mid}"}])
             _do_escalate()
             return
 
@@ -1358,7 +1374,9 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.end_session)
     def handle_end_session():
-        if not started() or ended():
+        if ended(): return
+        if not started():
+            # Nothing to summarize — just reset
             return
         _close_session(input.customer_role() or "", natural_language=False)
 
