@@ -1283,13 +1283,10 @@ def server(input, output, session):
         ts  = datetime.now().strftime("%H:%M")
         eid = len(handoff_entries()) + 1
         handoff_entries.set(handoff_entries() + [{"id": eid, "text": handoff, "ts": ts}])
-        # Switch to escalation tab via JS in chat message (safe — it's content, not DOM mutation)
         add_msg("assistant",
             "Here is a summary you can share with Meredith Callahan so she can pick up right where we left off:\n\n"
-            "---\n**HANDOFF SUMMARY FOR MEREDITH CALLAHAN**\n\n" + handoff
-            + "\n\n_The Escalation tab on the right has been updated with this summary._",
-            is_system=True)
-        # Trigger tab switch via a Shiny session JS call — one-time, no accumulation
+            "---\n**HANDOFF SUMMARY FOR MEREDITH CALLAHAN**\n\n" + handoff,
+            is_system=False)
         ui.notification_show("Escalation summary added — see the Escalation tab →", type="message", duration=5)
 
     # ---- Send ----
