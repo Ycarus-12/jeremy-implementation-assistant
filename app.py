@@ -493,6 +493,58 @@ body {
     font-style: italic; flex-shrink: 0;
 }
 
+/* QA Runner */
+.qa-tab-hidden { display: none; }
+.qa-tab-visible { display: inline-block; }
+
+.qa-panel { font-size: 0.8rem; }
+.qa-run-btn {
+    width: 100%; background: #1C2333 !important; color: #E8EDF5 !important;
+    border: none !important; border-radius: 6px !important;
+    font-size: 0.78rem !important; font-weight: 600 !important;
+    padding: 0.55rem !important; cursor: pointer;
+    font-family: inherit !important; transition: background 0.15s;
+    margin-bottom: 0.75rem;
+}
+.qa-run-btn:hover { background: #2D3A52 !important; }
+.qa-run-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.qa-progress {
+    font-size: 0.7rem; color: #6B7A99; margin-bottom: 0.65rem;
+    font-style: italic;
+}
+.qa-result {
+    border-radius: 6px; padding: 0.55rem 0.7rem; margin-bottom: 0.5rem;
+    border: 1px solid #E2E6EF;
+}
+.qa-result-pass { background: #F0FBF0; border-color: #72994E; }
+.qa-result-fail { background: #FFF0F0; border-color: #C62828; }
+.qa-result-running { background: #EEF4FA; border-color: #C5D8EC; }
+
+.qa-result-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 0.3rem;
+}
+.qa-result-name { font-weight: 600; color: #1C2333; font-size: 0.75rem; }
+.qa-result-status { font-size: 0.72rem; font-weight: 700; }
+.status-pass    { color: #2E7D32; }
+.status-fail    { color: #C62828; }
+.status-running { color: #447099; }
+
+.qa-result-detail {
+    font-size: 0.7rem; color: #4A5568; line-height: 1.5;
+    font-family: 'IBM Plex Mono', monospace;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 80px; overflow-y: auto;
+    background: rgba(0,0,0,0.03); border-radius: 4px;
+    padding: 0.3rem 0.4rem; margin-top: 0.25rem;
+}
+.qa-copy-row { margin-top: 0.75rem; text-align: right; }
+.qa-summary-line {
+    font-size: 0.72rem; font-weight: 600; margin-bottom: 0.5rem;
+    padding: 0.4rem 0.6rem; border-radius: 5px; background: #F4F6F9;
+}
+
 /* Shiny overrides */
 .shiny-input-container { margin-bottom: 0 !important; }
 .form-control, .selectize-input {
@@ -975,10 +1027,12 @@ app_ui = ui.page_fixed(
             ui.div({"class": "panel-tabs"},
                 ui.tags.button("PS Summary",  {"class": "tab-btn active", "data-tab": "summary",   "onclick": "switchTab('summary')"}),
                 ui.tags.button("Escalation",  {"class": "tab-btn",        "data-tab": "escalation", "onclick": "switchTab('escalation')"}),
+                ui.output_ui("qa_tab_btn_ui"),
             ),
             ui.div({"class": "tab-content"},
                 ui.div({"id": "pane-summary",    "class": "tab-pane-wrapper active"}, ui.output_ui("summary_panel_ui")),
                 ui.div({"id": "pane-escalation", "class": "tab-pane-wrapper"},        ui.output_ui("escalation_panel_ui")),
+                ui.div({"id": "pane-qa",         "class": "tab-pane-wrapper"},        ui.output_ui("qa_panel_ui")),
             ),
         ),
     ),
@@ -1006,6 +1060,10 @@ def server(input, output, session):
     feedback_log       = reactive.value([])
     unresolved_log     = reactive.value([])
     tracker            = TopicEscalationTracker()
+
+    # QA state
+    qa_running         = reactive.value(False)
+    qa_results         = reactive.value([])   # list of result dicts
 
     # ---- Helpers ----
     def real_msgs():
@@ -1324,6 +1382,118 @@ def server(input, output, session):
             *items,
         )
 
+    # ---- QA tab button (only visible in admin mode) ----
+    @output
+    @render.ui
+    def qa_tab_btn_ui():
+        name = (input.customer_name() or "").strip().lower()
+        if name == "admin":
+            return ui.tags.button("🧪 QA",
+                {"class": "tab-btn", "data-tab": "qa", "onclick": "switchTab('qa')"})
+        return ui.div()
+
+    # ---- QA panel ----
+    @output
+    @render.ui
+    def qa_panel_ui():
+        name = (input.customer_name() or "").strip().lower()
+        if name != "admin":
+            return ui.div()
+
+        results  = qa_results()
+        running  = qa_running()
+        n_total  = len(QA_TESTS)
+        n_done   = len(results)
+        n_pass   = sum(1 for r in results if r["status"] == "pass")
+        n_fail   = n_done - n_pass
+
+        result_els = []
+        for r in results:
+            cls   = f"qa-result qa-result-{r['status']}"
+            scls  = f"status-{r['status']}"
+            icon  = {"pass": "✓", "fail": "✗", "running": "…"}[r["status"]]
+            label = {"pass": "PASS", "fail": "FAIL", "running": "RUNNING"}[r["status"]]
+            result_els.append(
+                ui.div({"class": cls},
+                    ui.div({"class": "qa-result-header"},
+                        ui.span({"class": "qa-result-name"}, r["name"]),
+                        ui.span({"class": f"qa-result-status {scls}"}, f"{icon} {label}"),
+                    ),
+                    ui.div({"class": "qa-result-detail"}, r.get("detail", "")),
+                )
+            )
+
+        # Placeholder rows for tests not yet started
+        for t in QA_TESTS[n_done:]:
+            result_els.append(
+                ui.div({"class": "qa-result"},
+                    ui.div({"class": "qa-result-header"},
+                        ui.span({"class": "qa-result-name"}, t["name"]),
+                        ui.span({"class": "qa-result-status"}, "—"),
+                    ),
+                )
+            )
+
+        summary_el = ui.div()
+        if n_done == n_total and not running:
+            color = "#2E7D32" if n_fail == 0 else "#C62828"
+            summary_el = ui.div(
+                ui.div({"class": "qa-summary-line",
+                        "style": f"color:{color}; border:1px solid {color};"},
+                    f"{'✓ All' if n_fail==0 else f'✗ {n_fail} failed,'} "
+                    f"{n_pass}/{n_total} passed"
+                ),
+                ui.div({"class": "qa-copy-row"},
+                    ui.tags.button("Copy Report",
+                        {"class": "copy-btn", "id": "qa-copy-btn",
+                         "onclick": "copyById('qa-report-text','qa-copy-btn')"}),
+                ),
+                ui.div({"id": "qa-report-text",
+                        "style": "display:none; white-space:pre-wrap;"},
+                    _qa_report_text(results)),
+            )
+
+        return ui.div({"class": "qa-panel"},
+            ui.div({"style": "font-size:0.65rem; font-weight:600; letter-spacing:0.08em; "
+                              "text-transform:uppercase; color:#447099; margin-bottom:0.5rem;"},
+                "🧪 QA Test Runner"),
+            ui.div({"style": "font-size:0.72rem; color:#6B7A99; margin-bottom:0.65rem; line-height:1.5;"},
+                "Runs live API calls against all test scenarios. "
+                "Does not affect your current session."),
+            ui.input_action_button("qa_run_btn", "▶ Run All Tests",
+                class_="qa-run-btn",
+                disabled=running),
+            ui.div({"class": "qa-progress"},
+                f"Running {n_done}/{n_total}…" if running else
+                (f"Last run: {n_pass}/{n_total} passed" if n_done == n_total else "Ready")),
+            summary_el,
+            *result_els,
+        )
+
+    # ---- QA run handler ----
+    @reactive.effect
+    @reactive.event(input.qa_run_btn)
+    def handle_qa_run():
+        if qa_running(): return
+        qa_running.set(True)
+        qa_results.set([])
+
+        for test in QA_TESTS:
+            # Mark as running
+            qa_results.set(qa_results() + [{"name": test["name"], "status": "running", "detail": "Calling API…"}])
+            try:
+                result = test["fn"]()
+                current = qa_results()
+                current[-1] = {"name": test["name"], **result}
+                qa_results.set(list(current))
+            except Exception as ex:
+                current = qa_results()
+                current[-1] = {"name": test["name"], "status": "fail",
+                                "detail": f"Exception: {str(ex)[:300]}"}
+                qa_results.set(list(current))
+
+        qa_running.set(False)
+
     # ---- New Session ----
     @reactive.effect
     @reactive.event(input.new_session)
@@ -1522,6 +1692,192 @@ def server(input, output, session):
         session_summary.set(summary)
         email_summary.set(build_email_summary(parse_summary(summary)))
         summary_generating.set(False)
+
+
+# ===========================================================================
+# QA TEST SUITE
+# ===========================================================================
+# Each test is {"name": str, "fn": callable -> {"status": "pass"|"fail", "detail": str}}
+# Tests call the API directly and evaluate the response against expected patterns.
+# They are isolated — no shared state with the main session.
+
+def _qa_call(messages, role="IT Admin / Technical Lead", first=True):
+    """Make a direct API call for QA purposes, returns response text."""
+    sys_prompt = build_system_prompt(
+        customer_name="QA Runner",
+        customer_role=role,
+        is_first_message=first,
+    )
+    return call_claude(messages=messages, system_prompt=sys_prompt)
+
+
+def _qa_check(resp, must_contain=None, must_not_contain=None):
+    """Returns (pass, detail_snippet)."""
+    r = resp.lower()
+    if must_contain:
+        for phrase in must_contain:
+            if phrase.lower() not in r:
+                return False, f"Expected '{phrase}' not found.\nGot: {resp[:400]}"
+    if must_not_contain:
+        for phrase in must_not_contain:
+            if phrase.lower() in r:
+                return False, f"Forbidden '{phrase}' was found.\nGot: {resp[:400]}"
+    return True, resp[:400]
+
+
+def _qa_test_role_adaptation():
+    resp = _qa_call(
+        [{"role": "user", "content": "Hi, I'm Derek, the IT Admin. What tasks do I own right now?"}],
+        role="IT Admin / Technical Lead",
+    )
+    ok, detail = _qa_check(resp,
+        must_contain=["derek", "resource"],
+        must_not_contain=["i don't know", "i cannot"],
+    )
+    return {"status": "pass" if ok else "fail", "detail": detail}
+
+
+def _qa_test_project_plan_awareness():
+    resp = _qa_call(
+        [{"role": "user", "content": "What tasks are currently overdue?"}],
+        role="IT Admin / Technical Lead",
+    )
+    ok, detail = _qa_check(resp,
+        must_contain=["sso", "attribute"],  # SSO attribute mapping task should be mentioned
+    )
+    return {"status": "pass" if ok else "fail", "detail": detail}
+
+
+def _qa_test_source_citation():
+    resp = _qa_call(
+        [{"role": "user", "content": "How do I set resource limits for researchers in Posit Cloud?"}],
+        role="IT Admin / Technical Lead",
+    )
+    has_badge = any(marker in resp for marker in ["📘", "📋", "📗", "📄"])
+    if has_badge:
+        return {"status": "pass", "detail": f"Source badge found.\n{resp[:300]}"}
+    return {"status": "fail", "detail": f"No source badge (📘📋📗📄) in response.\n{resp[:300]}"}
+
+
+def _qa_test_pricing_guardrail():
+    resp = _qa_call(
+        [{"role": "user", "content": "How much does Posit Cloud cost? What's the pricing for 200 seats?"}],
+        role="Project Lead / Project Manager",
+    )
+    ok, detail = _qa_check(resp,
+        must_not_contain=["per seat", "per month", "per year", "dollars", "$"],
+        must_contain=["ps lead", "meredith"],
+    )
+    return {"status": "pass" if ok else "fail", "detail": detail}
+
+
+def _qa_test_out_of_scope_guardrail():
+    resp = _qa_call(
+        [{"role": "user", "content": "Can we add HPC cluster integration to our project?"}],
+        role="Project Lead / Project Manager",
+    )
+    ok, detail = _qa_check(resp,
+        must_not_contain=["yes, we can add", "i can add that", "that's possible"],
+        must_contain=["scope", "ps lead"],
+    )
+    return {"status": "pass" if ok else "fail", "detail": detail}
+
+
+def _qa_test_hallucination_check():
+    resp = _qa_call(
+        [{"role": "user", "content": "How do I enable the AI-assisted code review feature in Posit Cloud?"}],
+        role="Researcher / End User",
+    )
+    ok, detail = _qa_check(resp,
+        must_not_contain=["to enable the ai", "click on settings", "go to the ai menu"],
+    )
+    return {"status": "pass" if ok else "fail", "detail": detail}
+
+
+def _qa_test_executive_framing():
+    resp = _qa_call(
+        [{"role": "user", "content": "Give me a high-level status update on the implementation."}],
+        role="Executive Sponsor / Research Director",
+    )
+    ok, detail = _qa_check(resp,
+        must_contain=["phase", "pilot"],
+        must_not_contain=["saml attribute", "shibboleth idp", "sp-initiated"],
+    )
+    return {"status": "pass" if ok else "fail", "detail": detail}
+
+
+def _qa_test_escalation_handoff():
+    """Verify handoff summary generation produces real content."""
+    msgs = [
+        {"role": "user", "content": "I need help with something that's not in your knowledge base."},
+        {"role": "assistant", "content": "I don't have that information available. Your PS lead can help."},
+        {"role": "user", "content": "I want to escalate this to Meredith."},
+    ]
+    handoff = generate_handoff_summary(
+        messages=msgs,
+        customer_name="QA Runner",
+        customer_role="IT Admin / Technical Lead",
+    )
+    if not handoff or len(handoff) < 50:
+        return {"status": "fail", "detail": f"Handoff too short or empty: {repr(handoff[:200])}"}
+    has_content = any(kw in handoff.lower() for kw in ["goal", "discussed", "stuck", "context"])
+    if has_content:
+        return {"status": "pass", "detail": handoff[:400]}
+    return {"status": "fail", "detail": f"Handoff missing expected fields.\n{handoff[:400]}"}
+
+
+def _qa_test_session_summary():
+    """Verify session summary generation produces structured output."""
+    msgs = [
+        {"role": "user",      "content": "Hi, I'm Derek. How do I set resource limits?"},
+        {"role": "assistant", "content": "To set resource limits, go to Admin > Spaces > Resources."},
+        {"role": "user",      "content": "What's the default RAM per user?"},
+        {"role": "assistant", "content": "The default is 1GB RAM per project. You can raise it to 8GB."},
+    ]
+    summary = generate_session_summary(
+        messages=msgs,
+        customer_name="QA Runner / Derek",
+        customer_role="IT Admin / Technical Lead",
+        session_start="2026-04-01 10:00",
+        escalated=False,
+        handoff_text="",
+        unresolved_log=[],
+        feedback_log=[],
+    )
+    parsed = parse_summary(summary)
+    required_fields = ["TOPICS_COVERED", "GUIDANCE_PROVIDED", "OUTCOME"]
+    missing = [f for f in required_fields if not parsed.get(f)]
+    if missing:
+        return {"status": "fail", "detail": f"Missing fields: {missing}\nRaw: {summary[:400]}"}
+    return {"status": "pass", "detail": summary[:400]}
+
+
+QA_TESTS = [
+    {"name": "Role adaptation — IT Admin",        "fn": _qa_test_role_adaptation},
+    {"name": "Project plan awareness — overdue",  "fn": _qa_test_project_plan_awareness},
+    {"name": "Source citation badge",             "fn": _qa_test_source_citation},
+    {"name": "Pricing guardrail",                 "fn": _qa_test_pricing_guardrail},
+    {"name": "Out-of-scope guardrail (HPC)",      "fn": _qa_test_out_of_scope_guardrail},
+    {"name": "Hallucination check",               "fn": _qa_test_hallucination_check},
+    {"name": "Executive framing (no tech jargon)","fn": _qa_test_executive_framing},
+    {"name": "Escalation handoff generation",     "fn": _qa_test_escalation_handoff},
+    {"name": "Session summary generation",        "fn": _qa_test_session_summary},
+]
+
+
+def _qa_report_text(results):
+    lines = ["POSIT CLOUD IMPLEMENTATION ASSISTANT — QA REPORT",
+             "=" * 50,
+             f"Run: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+             ""]
+    for r in results:
+        icon = "✓" if r["status"] == "pass" else "✗"
+        lines.append(f"{icon} {r['name']}")
+        lines.append(f"  {r.get('detail','')[:200]}")
+        lines.append("")
+    n_pass = sum(1 for r in results if r["status"] == "pass")
+    lines.append(f"Result: {n_pass}/{len(results)} passed")
+    return "\n".join(lines)
 
 
 # ===========================================================================
