@@ -616,7 +616,18 @@ document.addEventListener('click', function(e) {
     var m = document.getElementById('info-modal');
     if (m && e.target === m) closeInfoModal();
 });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeInfoModal(); });
+
+// Instructions modal
+function openInstructionsModal()  { var m = document.getElementById('instructions-modal'); if (m) m.classList.add('open'); }
+function closeInstructionsModal() { var m = document.getElementById('instructions-modal'); if (m) m.classList.remove('open'); }
+document.addEventListener('click', function(e) {
+    var m = document.getElementById('instructions-modal');
+    if (m && e.target === m) closeInstructionsModal();
+});
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { closeInfoModal(); closeInstructionsModal(); }
+});
 
 // Demo launcher
 function launchDemo(name, role, msg) {
@@ -762,12 +773,114 @@ ROLES = [
     ("UAT Tester",                            "UAT Tester"),
 ]
 
+INSTRUCTIONS_MODAL_HTML = ui.div(
+    {"class": "modal-overlay", "id": "instructions-modal"},
+    ui.div({"class": "modal-box"},
+        ui.div({"class": "modal-header"},
+            ui.div(
+                ui.div({"class": "modal-header-title"}, "How to Use This App"),
+                ui.div({"class": "modal-header-sub"}, "A quick guide for first-time users"),
+            ),
+            ui.tags.button("✕", {"class": "modal-close", "onclick": "closeInstructionsModal()"}),
+        ),
+        ui.div({"class": "modal-body"},
+
+            ui.tags.h3("Step 1 — Set up your session"),
+            ui.tags.p(
+                "Before sending your first message, enter your name in the sidebar and select your role "
+                "from the dropdown. Your role determines how the assistant frames its responses — "
+                "an IT Admin gets step-by-step technical guidance, an Executive Sponsor gets high-level "
+                "status and decision context, a Researcher gets getting-started help."
+            ),
+            ui.tags.p(
+                "Not sure what role fits? Pick the closest one — the assistant will adapt as the "
+                "conversation develops."
+            ),
+
+            ui.tags.h3("Step 2 — Ask your question"),
+            ui.tags.p(
+                "Type your question or describe what you're trying to accomplish and press Enter "
+                "(or Shift+Enter for a new line). Be as specific as you like — the more context "
+                "you give, the more useful the answer."
+            ),
+            ui.tags.p("Some things worth trying:"),
+            ui.tags.ul(
+                ui.tags.li(ui.HTML("<strong>Project status</strong> — \"What's overdue right now?\" or \"Where are we in the implementation?\"")),
+                ui.tags.li(ui.HTML("<strong>Task guidance</strong> — \"Walk me through setting resource limits\" or \"How do I configure SSO?\"")),
+                ui.tags.li(ui.HTML("<strong>UAT</strong> — \"What do I need to verify before pilot go-live?\"")),
+                ui.tags.li(ui.HTML("<strong>Scope questions</strong> — \"Is HPC integration included in our SOW?\"")),
+            ),
+
+            ui.tags.h3("Step 3 — Use the demo launchers (optional)"),
+            ui.tags.p(
+                "The three Demo Quick-Start buttons in the sidebar each launch a pre-loaded conversation "
+                "as a specific persona — Derek Huang (IT Admin), Dr. Kim Osei (Executive Sponsor), "
+                "or a UAT Tester. Clicking one resets any current session, fills in the name and role, "
+                "and fires a realistic opening message automatically. Good for a quick walkthrough."
+            ),
+
+            ui.tags.h3("Step 4 — Escalate if you need a human"),
+            ui.tags.p(
+                "If the assistant can't resolve your question, or you simply want your PS lead involved, "
+                "say so directly. Phrases that trigger escalation:"
+            ),
+            ui.tags.ul(
+                ui.tags.li("\"I'd like to escalate this\""),
+                ui.tags.li("\"Can you get Meredith involved?\""),
+                ui.tags.li("\"I want to escalate\""),
+                ui.tags.li("\"I need to speak with someone\""),
+            ),
+            ui.tags.p(
+                "The assistant will generate a structured handoff summary — what you were trying to do, "
+                "what was discussed, where you got stuck — and it will appear immediately in the "
+                "<strong>Escalation tab</strong> on the right panel. You can trigger multiple "
+                "escalations in a single session; each one is added as a numbered entry."
+            ),
+
+            ui.tags.h3("Step 5 — End your session"),
+            ui.tags.p(ui.HTML(
+                "When you're done, click <strong>End Session</strong> in the sidebar, "
+                "or say something like \"Let's end the session\" or \"End this session.\" "
+                "The assistant will generate a PS-facing session summary — topics covered, guidance "
+                "provided, follow-up indicators, unresolved questions — which appears in the "
+                "<strong>PS Summary tab</strong> on the right."
+            )),
+            ui.tags.p(ui.HTML(
+                "To start a fresh conversation, click <strong>↺ New Session</strong> "
+                "— this resets all state without a page reload."
+            )),
+
+            ui.tags.h3("The right panel"),
+            ui.tags.ul(
+                ui.tags.li(ui.HTML("<strong>PS Summary tab</strong> — appears when the session ends. Contains a structured summary for the PS team including follow-up indicators, topic tags, and an email-ready format.")),
+                ui.tags.li(ui.HTML("<strong>Escalation tab</strong> — populated immediately when escalation is triggered. Stays populated for the rest of the session, even after it ends.")),
+            ),
+            ui.tags.p(
+                "Both tabs have copy buttons. The PS Summary also has an email-ready format toggle."
+            ),
+
+            ui.tags.h3("A few things to know"),
+            ui.tags.ul(
+                ui.tags.li("The assistant only answers from its knowledge base — project plan, SOW, and task guides. It won't speculate or fill gaps with general assumptions."),
+                ui.tags.li("Every session is summarized for the PS team. That's by design — it keeps Meredith in the loop without requiring you to repeat yourself."),
+                ui.tags.li("If something the assistant says contradicts guidance from Meredith or the PS team, trust Meredith. Always."),
+                ui.tags.li("Feedback thumbs (👍 👎) appear on each assistant message — use them to flag responses that were or weren't helpful."),
+            ),
+
+        ),
+        ui.div({"class": "modal-footer"},
+            "Questions about the implementation? Contact Meredith Callahan directly: meredith.flaring453@passmail.net"
+        ),
+    ),
+)
+
 app_ui = ui.page_fixed(
     ui.tags.head(
         ui.tags.style(CSS),
         ui.tags.script(JS),
     ),
     MODAL_HTML,
+    INSTRUCTIONS_MODAL_HTML,
     ui.div({"class": "app-shell"},
 
         # TOP BAR
@@ -776,6 +889,7 @@ app_ui = ui.page_fixed(
             ui.div({"class": "top-bar-title"}, "Cloud Implementation Assistant"),
             ui.div({"class": "top-bar-sub"}, "State University Research Computing"),
             ui.tags.button("? What am I looking at", {"class": "info-btn", "onclick": "openInfoModal()"}),
+            ui.tags.button("How to use this", {"class": "info-btn", "onclick": "openInstructionsModal()"}),
             ui.div({"class": "top-bar-badge"}, "Proof of Concept"),
         ),
 
