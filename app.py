@@ -1,4 +1,4 @@
-# app.py — Posit Cloud Implementation Assistant (Shiny for Python)
+# app.py — Lemma: Posit Cloud Implementation Assistant (Shiny for Python)
 
 from shiny import App, reactive, render, ui
 from datetime import datetime, date, timezone
@@ -94,6 +94,123 @@ def log_to_airtable(user_id: str, role: str, event_type: str,
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()
+
+
+# ===========================================================================
+# Resend email delivery — sends the PS summary to the demo visitor
+# ===========================================================================
+EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def send_summary_email(to_addr: str, summary_text: str) -> tuple:
+    """Send the email-ready summary via Resend. Returns (ok, detail)."""
+    try:
+        import urllib.request, json as _json
+        api_key = os.environ.get("RESEND_API_KEY", "")
+        from_addr = os.environ.get("RESEND_FROM", "")
+        if not api_key or not from_addr:
+            return False, "Email delivery is not configured on this deployment."
+        html_body = (
+            '<div style="font-family:monospace;white-space:pre-wrap;'
+            'font-size:13px;color:#1C2333;line-height:1.6;">'
+            + summary_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            + "</div>"
+            '<p style="font-family:sans-serif;font-size:12px;color:#6B7A99;">'
+            "Sent by Lemma, the Posit Cloud implementation assistant — a proof-of-concept "
+            "built by Jeremy Coates. Your address was used only to send this summary.</p>"
+        )
+        payload = _json.dumps({
+            "from": from_addr,
+            "to": [to_addr],
+            "subject": "Your PS Session Summary — from Lemma",
+            "text": summary_text,
+            "html": html_body,
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.resend.com/emails", data=payload,
+            headers={"Authorization": f"Bearer {api_key}",
+                     "Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=10)
+        return True, ""
+    except Exception as ex:
+        return False, f"Send failed: {str(ex)[:200]}"
+
+
+# ===========================================================================
+# Insights data layer — seeded sample data + live capture from all sessions
+# in this server process. Airtable remains the durable log; reading it back
+# (with a read-scoped token) is the Phase 2 persistence upgrade.
+# ===========================================================================
+from datetime import timedelta
+
+
+def _days_ago(n: int) -> str:
+    return (date.today() - timedelta(days=n)).strftime("%b %-d")
+
+
+def _seed_unresolved():
+    return [
+        {"q": "Can researchers schedule R scripts to run nightly?",                       "topic": "Product Question",  "date": _days_ago(26)},
+        {"q": "How do I bulk-export all projects in a space for archival?",               "topic": "Product Question",  "date": _days_ago(24)},
+        {"q": "Does the SURC template support Python alongside R?",                       "topic": "Onboarding",        "date": _days_ago(21)},
+        {"q": "What happens to a researcher's projects when their NetID is deactivated?", "topic": "Access / Roles",    "date": _days_ago(19)},
+        {"q": "Can we see per-department compute usage in one report?",                   "topic": "Compute / Usage",   "date": _days_ago(15)},
+        {"q": "Is there a way to pre-install our lab's package set for all new projects?","topic": "Onboarding",        "date": _days_ago(12)},
+        {"q": "How long are deleted projects recoverable?",                               "topic": "Product Question",  "date": _days_ago(9)},
+        {"q": "Can UAT defects be tracked inside Posit Cloud itself?",                    "topic": "UAT",               "date": _days_ago(6)},
+        {"q": "Does SSO session timeout follow our Shibboleth policy or Posit's?",        "topic": "SSO",               "date": _days_ago(3)},
+    ]
+
+
+def _seed_scope_signals():
+    return [
+        {"q": "Can we add HPC cluster integration for the genomics group?",          "date": _days_ago(23)},
+        {"q": "Is HIPAA-compliant hosting available if the med school joins?",       "date": _days_ago(20)},
+        {"q": "Could we get a private package mirror for internal packages?",        "date": _days_ago(16)},
+        {"q": "What about Posit Workbench for the power users hitting RAM limits?",  "date": _days_ago(13)},
+        {"q": "Can we connect directly to the institutional data warehouse?",        "date": _days_ago(10)},
+        {"q": "Could we add two more departmental spaces for Engineering?",          "date": _days_ago(5)},
+    ]
+
+
+# Live capture — appended by every session in this server process
+_runtime_unresolved: list = []
+_runtime_scope_signals: list = []
+
+_TOPIC_KEYWORDS = [
+    ("SSO",              ["sso", "saml", "shibboleth", "login", "netid", "sign on", "sign-on"]),
+    ("Resource Limits",  ["ram", "cpu", "resource", "memory", "compute hour", "background exec"]),
+    ("Provisioning",     ["provision", "invite", "account", "member", "seat"]),
+    ("UAT",              ["uat", "test", "sign-off", "signoff", "acceptance"]),
+    ("Onboarding",       ["onboard", "training", "guide", "template", "getting started"]),
+    ("Access / Roles",   ["role", "permission", "contributor", "admin", "moderator", "access"]),
+    ("Compute / Usage",  ["usage", "billing", "hours", "cost"]),
+]
+
+
+def _classify_topic(q: str) -> str:
+    ql = q.lower()
+    for topic, kws in _TOPIC_KEYWORDS:
+        if any(k in ql for k in kws):
+            return topic
+    return "Product Question"
+
+
+def capture_unresolved(question: str):
+    _runtime_unresolved.append({
+        "q": question[:200],
+        "topic": _classify_topic(question),
+        "date": date.today().strftime("%b %-d"),
+    })
+
+
+def capture_scope_signal(question: str):
+    _runtime_scope_signals.append({
+        "q": question[:200],
+        "date": date.today().strftime("%b %-d"),
+    })
 
 # ===========================================================================
 # CSS
@@ -622,6 +739,110 @@ body {
     padding: 0.4rem 0.6rem; border-radius: 5px; background: #F4F6F9;
 }
 
+/* Email summary delivery — designed to be impossible to miss */
+.email-summary-block {
+    background: linear-gradient(135deg, #1C2333 0%, #2A3A55 100%);
+    border: 1px solid #447099; border-radius: 10px;
+    padding: 0.9rem 1rem; margin-bottom: 1rem;
+    box-shadow: 0 4px 14px rgba(28,35,51,0.25);
+}
+.email-summary-title {
+    font-size: 0.85rem; font-weight: 700; color: #E8EDF5;
+    margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.4rem;
+}
+.email-summary-sub {
+    font-size: 0.7rem; color: #9BB4D0; line-height: 1.5; margin-bottom: 0.6rem;
+}
+.email-summary-row { display: flex; gap: 0.45rem; align-items: stretch; }
+.email-summary-row .form-control {
+    flex: 1; background: #FFFFFF !important;
+    border: 1px solid #447099 !important; font-size: 0.78rem !important;
+}
+.email-send-btn {
+    background: #72994E !important; color: white !important;
+    border: none !important; border-radius: 6px !important;
+    font-size: 0.75rem !important; font-weight: 700 !important;
+    padding: 0 0.9rem !important; cursor: pointer;
+    font-family: inherit !important; white-space: nowrap;
+    transition: background 0.15s;
+}
+.email-send-btn:hover { background: #5F8340 !important; }
+.email-status { font-size: 0.72rem; margin-top: 0.45rem; line-height: 1.4; }
+.email-status-ok    { color: #9CE09C; font-weight: 600; }
+.email-status-err   { color: #FFAB91; font-weight: 600; }
+.email-status-busy  { color: #9BB4D0; font-style: italic; }
+.email-disclosure { font-size: 0.62rem; color: #6B7A99; margin-top: 0.4rem; }
+
+/* Risk assessment block in PS summary */
+.risk-block {
+    border-radius: 6px; padding: 0.65rem 0.75rem; margin-bottom: 0.85rem;
+    border: 1px solid #E2E6EF; border-left-width: 4px;
+}
+.risk-critical { background: #FFF0F0; border-color: #FFCDD2; border-left-color: #C62828; }
+.risk-high     { background: #FFF3E0; border-color: #FFCC80; border-left-color: #E65100; }
+.risk-low      { background: #EEF4FA; border-color: #C5D8EC; border-left-color: #447099; }
+.risk-none     { background: #F0FBF0; border-color: #C8E6C9; border-left-color: #2E7D32; }
+.risk-label {
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.09em;
+    text-transform: uppercase; margin-bottom: 0.3rem;
+}
+.risk-label-critical { color: #C62828; }
+.risk-label-high     { color: #E65100; }
+.risk-label-low      { color: #355880; }
+.risk-label-none     { color: #2E7D32; }
+.risk-content { font-size: 0.78rem; color: #1C2333; line-height: 1.5; }
+
+/* Insights dashboard */
+.insights-modal-box { width: min(940px, 94vw) !important; }
+.insights-banner {
+    background: #EEF4FA; border: 1px solid #C5D8EC; border-left: 3px solid #447099;
+    border-radius: 0 6px 6px 0; padding: 0.55rem 0.8rem; margin-bottom: 1rem;
+    font-size: 0.74rem; color: #2D4A63; line-height: 1.5;
+}
+.insights-stats-row { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.insights-stat-card {
+    flex: 1; min-width: 130px; background: #1C2333; border-radius: 8px;
+    padding: 0.75rem 0.9rem; text-align: center;
+}
+.insights-stat-value { font-size: 1.4rem; font-weight: 700; color: #E8EDF5; }
+.insights-stat-label {
+    font-size: 0.62rem; font-weight: 600; letter-spacing: 0.07em;
+    text-transform: uppercase; color: #6B7A99; margin-top: 0.15rem;
+}
+.insights-columns { display: flex; gap: 1.25rem; align-items: flex-start; }
+.insights-col { flex: 1; min-width: 0; }
+.insights-col-header {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.07em;
+    text-transform: uppercase; color: #447099;
+    border-bottom: 2px solid #447099; padding-bottom: 0.35rem; margin-bottom: 0.65rem;
+}
+.insights-topic-group { margin-bottom: 0.85rem; }
+.insights-topic-name {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.76rem; font-weight: 700; color: #1C2333; margin-bottom: 0.3rem;
+}
+.insights-topic-count {
+    background: #447099; color: white; border-radius: 12px;
+    padding: 0 8px; font-size: 0.68rem; font-weight: 700;
+}
+.insights-q-item {
+    font-size: 0.73rem; color: #4A5568; line-height: 1.45;
+    padding: 0.3rem 0.45rem; border-left: 2px solid #E2E6EF;
+    margin-bottom: 0.25rem; background: #FAFBFD;
+}
+.insights-q-date { color: #9BA8BF; font-size: 0.65rem; white-space: nowrap; margin-left: 0.4rem; }
+.scope-signal-item {
+    background: #FFFDF0; border: 1px solid #FFE082; border-radius: 6px;
+    padding: 0.5rem 0.65rem; margin-bottom: 0.45rem;
+    font-size: 0.73rem; color: #3D2B00; line-height: 1.45;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;
+}
+.insights-refresh-row { text-align: right; margin-bottom: 0.5rem; }
+.insights-footer-note {
+    margin-top: 1.25rem; padding-top: 0.75rem; border-top: 1px solid #E2E6EF;
+    font-size: 0.7rem; color: #9BA8BF; font-style: italic; line-height: 1.5;
+}
+
 /* Shiny overrides */
 .shiny-input-container { margin-bottom: 0 !important; }
 .form-control, .selectize-input {
@@ -754,8 +975,16 @@ document.addEventListener('click', function(e) {
     if (m && e.target === m) closeInstructionsModal();
 });
 
+// Insights modal
+function openInsightsModal()  { var m = document.getElementById('insights-modal'); if (m) m.classList.add('open'); }
+function closeInsightsModal() { var m = document.getElementById('insights-modal'); if (m) m.classList.remove('open'); }
+document.addEventListener('click', function(e) {
+    var m = document.getElementById('insights-modal');
+    if (m && e.target === m) closeInsightsModal();
+});
+
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') { closeInfoModal(); closeInstructionsModal(); }
+    if (e.key === 'Escape') { closeInfoModal(); closeInstructionsModal(); closeInsightsModal(); }
 });
 
 // Demo launcher
@@ -779,7 +1008,7 @@ MODAL_HTML = ui.div(
     ui.div({"class": "modal-box"},
         ui.div({"class": "modal-header"},
             ui.div(
-                ui.div({"class": "modal-header-title"}, "Posit Cloud Implementation Assistant"),
+                ui.div({"class": "modal-header-title"}, "Lemma — Posit Cloud Implementation Assistant"),
                 ui.div({"class": "modal-header-sub"}, "A proof-of-concept built to start a conversation"),
             ),
             ui.tags.button("✕", {"class": "modal-close", "onclick": "closeInfoModal()"}),
@@ -799,6 +1028,12 @@ MODAL_HTML = ui.div(
             ),
 
             ui.tags.h3("Hey Posit — this one's for you"),
+            ui.tags.p(
+                ui.HTML("<strong>Why \"Lemma\"?</strong> In mathematics, a lemma is the small proven "
+                "result you use on the way to the big theorem. That's the job description: "
+                "Lemma handles the small, repeatable questions so your PS team can prove the "
+                "big things. (Say it out loud — \"Lemma handle it.\")")
+            ),
             ui.tags.p(
                 "If you're reading this, you're probably on the hiring team, and I built this specifically "
                 "to get your attention. (Is it working? I genuinely have no idea, but here we are.) "
@@ -1003,22 +1238,45 @@ INSTRUCTIONS_MODAL_HTML = ui.div(
     ),
 )
 
+INSIGHTS_MODAL_HTML = ui.div(
+    {"class": "modal-overlay", "id": "insights-modal"},
+    ui.div({"class": "modal-box insights-modal-box"},
+        ui.div({"class": "modal-header"},
+            ui.div(
+                ui.div({"class": "modal-header-title"}, "📊 Implementation Insights"),
+                ui.div({"class": "modal-header-sub"}, "What the assistant learns from every conversation — knowledge gaps, expansion signals, and session health"),
+            ),
+            ui.tags.button("✕", {"class": "modal-close", "onclick": "closeInsightsModal()"}),
+        ),
+        ui.div({"class": "modal-body"},
+            ui.output_ui("insights_body"),
+        ),
+        ui.div({"class": "modal-footer"},
+            "Every unresolved question is a knowledge base improvement waiting to be written. "
+            "Every scope question is an expansion conversation waiting to happen."
+        ),
+    ),
+)
+
 app_ui = ui.page_fixed(
     ui.tags.head(
+        ui.tags.title("Lemma — Implementation Assistant"),
         ui.tags.style(CSS),
         ui.tags.script(JS),
     ),
     MODAL_HTML,
     INSTRUCTIONS_MODAL_HTML,
+    INSIGHTS_MODAL_HTML,
     ui.div({"class": "app-shell"},
 
         # TOP BAR
         ui.div({"class": "top-bar"},
             ui.div({"class": "top-bar-logo"}, "Posit"),
-            ui.div({"class": "top-bar-title"}, "Cloud Implementation Assistant"),
+            ui.div({"class": "top-bar-title"}, "Lemma — Implementation Assistant"),
             ui.div({"class": "top-bar-sub"}, "State University Research Computing"),
             ui.tags.button("? What am I looking at", {"class": "info-btn", "onclick": "openInfoModal()"}),
             ui.tags.button("How to use this", {"class": "info-btn", "onclick": "openInstructionsModal()"}),
+            ui.tags.button("📊 Insights", {"class": "info-btn", "onclick": "openInsightsModal()"}),
             ui.div({"class": "top-bar-badge"}, "Proof of Concept"),
         ),
 
@@ -1107,7 +1365,9 @@ app_ui = ui.page_fixed(
                 ui.output_ui("qa_tab_btn_ui"),
             ),
             ui.div({"class": "tab-content"},
-                ui.div({"id": "pane-summary",    "class": "tab-pane-wrapper active"}, ui.output_ui("summary_panel_ui")),
+                ui.div({"id": "pane-summary",    "class": "tab-pane-wrapper active"},
+                       ui.output_ui("email_block_ui"),
+                       ui.output_ui("summary_panel_ui")),
                 ui.div({"id": "pane-escalation", "class": "tab-pane-wrapper"},        ui.output_ui("escalation_panel_ui")),
                 ui.div({"id": "pane-qa",         "class": "tab-pane-wrapper"},        ui.output_ui("qa_panel_ui")),
             ),
@@ -1141,6 +1401,9 @@ def server(input, output, session):
     feedback_log       = reactive.value([])
     unresolved_log     = reactive.value([])
     pending_meta       = reactive.value(None)
+    email_status       = reactive.value("")      # "", "sending", "sent:<addr>", "error:<msg>"
+    email_sends        = reactive.value(0)
+    insights_tick      = reactive.value(0)
     tracker            = TopicEscalationTracker()
 
     # QA state
@@ -1195,6 +1458,8 @@ def server(input, output, session):
         feedback_log.set([])
         unresolved_log.set([])
         pending_meta.set(None)
+        email_status.set("")
+        email_sends.set(0)
         tracker.reset()
 
     # ---- Extended tasks (non-blocking API calls) ----
@@ -1226,6 +1491,11 @@ def server(input, output, session):
             session_start, esc, handoff_text, unresolved, feedback,
         )
         return {"text": text}
+
+    @reactive.extended_task
+    async def email_task(to_addr: str, body: str) -> dict:
+        ok, detail = await asyncio.to_thread(send_summary_email, to_addr, body)
+        return {"ok": ok, "detail": detail, "to": to_addr}
 
     @reactive.extended_task
     async def qa_task() -> list:
@@ -1320,6 +1590,79 @@ def server(input, output, session):
             ),
         )
 
+    # ---- Insights dashboard ----
+    @output
+    @render.ui
+    def insights_body():
+        insights_tick()  # re-render when this session captures new signals
+
+        unresolved = _seed_unresolved() + list(_runtime_unresolved)
+        scope_sigs = _seed_scope_signals() + list(_runtime_scope_signals)
+
+        # Group unresolved by topic, most frequent first
+        by_topic: dict = {}
+        for item in unresolved:
+            by_topic.setdefault(item["topic"], []).append(item)
+        topics_sorted = sorted(by_topic.items(), key=lambda kv: -len(kv[1]))
+
+        live_count = len(_runtime_unresolved) + len(_runtime_scope_signals)
+
+        stat_cards = ui.div({"class": "insights-stats-row"},
+            ui.div({"class": "insights-stat-card"},
+                ui.div({"class": "insights-stat-value"}, str(len(unresolved))),
+                ui.div({"class": "insights-stat-label"}, "Knowledge Gaps")),
+            ui.div({"class": "insights-stat-card"},
+                ui.div({"class": "insights-stat-value"}, str(len(scope_sigs))),
+                ui.div({"class": "insights-stat-label"}, "Expansion Signals")),
+            ui.div({"class": "insights-stat-card"},
+                ui.div({"class": "insights-stat-value"}, str(len(topics_sorted))),
+                ui.div({"class": "insights-stat-label"}, "Topics Affected")),
+            ui.div({"class": "insights-stat-card"},
+                ui.div({"class": "insights-stat-value"}, str(live_count)),
+                ui.div({"class": "insights-stat-label"}, "Captured Live")),
+        )
+
+        gap_groups = []
+        for topic, items in topics_sorted:
+            gap_groups.append(ui.div({"class": "insights-topic-group"},
+                ui.div({"class": "insights-topic-name"},
+                    ui.span(topic),
+                    ui.span({"class": "insights-topic-count"}, str(len(items)))),
+                *[ui.div({"class": "insights-q-item"},
+                    item["q"],
+                    ui.span({"class": "insights-q-date"}, item["date"]))
+                  for item in items[-3:]],
+            ))
+
+        scope_items = [
+            ui.div({"class": "scope-signal-item"},
+                ui.span(item["q"]),
+                ui.span({"class": "insights-q-date"}, item["date"]))
+            for item in reversed(scope_sigs)
+        ]
+
+        return ui.div(
+            ui.div({"class": "insights-banner"},
+                ui.HTML("<strong>How this works:</strong> every question the assistant can't answer "
+                        "becomes a knowledge base improvement candidate. Every scope question becomes "
+                        "an expansion signal for Sales. Seeded with sample data — your live session "
+                        "activity is added in real time (ask something obscure or ask about HPC and "
+                        "reopen this page).")),
+            stat_cards,
+            ui.div({"class": "insights-columns"},
+                ui.div({"class": "insights-col"},
+                    ui.div({"class": "insights-col-header"}, "📚 Knowledge Gaps — KB Improvement Backlog"),
+                    *gap_groups),
+                ui.div({"class": "insights-col"},
+                    ui.div({"class": "insights-col-header"}, "📈 Expansion Signals — Change Order Pipeline"),
+                    *scope_items),
+            ),
+            ui.div({"class": "insights-footer-note"},
+                "Phase 2: this view reads the full Airtable log across all deployments, with "
+                "AI-assisted topic clustering and a weekly digest emailed to PS leadership — "
+                "the knowledge base becomes self-improving."),
+        )
+
     # ---- Chat messages ----
     @output
     @render.ui
@@ -1330,7 +1673,7 @@ def server(input, output, session):
         if not msgs and not thinking:
             return ui.div({"class": "empty-state"},
                 ui.div({"class": "empty-icon"}, "💬"),
-                ui.div("Select your role and send your first message to begin."),
+                ui.div("Select your role and send your first message — Lemma is ready when you are."),
             )
 
         elements = []
@@ -1382,7 +1725,7 @@ def server(input, output, session):
                 ))
 
             elements.append(ui.div({"class": row_cls},
-                ui.div({"class": av_cls}, "YOU" if is_user else "AI"),
+                ui.div({"class": av_cls}, "YOU" if is_user else "L"),
                 ui.div(
                     ui.div({"class": bub_cls}, *inner),
                     ui.div({"class": "msg-ts"}, m.get("ts", "")),
@@ -1391,7 +1734,7 @@ def server(input, output, session):
 
         if thinking:
             elements.append(ui.div({"class": "msg-row"},
-                ui.div({"class": "avatar avatar-ai"}, "AI"),
+                ui.div({"class": "avatar avatar-ai"}, "L"),
                 ui.div({"class": "bubble bubble-ai"},
                     ui.div({"class": "typing-dots"},
                         ui.div({"class": "dot"}), ui.div({"class": "dot"}), ui.div({"class": "dot"}),
@@ -1400,6 +1743,70 @@ def server(input, output, session):
             ))
 
         return ui.div(*elements)
+
+    # ---- Email delivery block (shown above PS Summary once it exists) ----
+    @output
+    @render.ui
+    def email_block_ui():
+        if not session_summary():
+            return ui.div()
+        status = email_status()
+        if status.startswith("sent:"):
+            status_el = ui.div({"class": "email-status email-status-ok"},
+                               f"✓ Sent to {status[5:]} — check your inbox.")
+        elif status == "sending":
+            status_el = ui.div({"class": "email-status email-status-busy"}, "Sending…")
+        elif status.startswith("error:"):
+            status_el = ui.div({"class": "email-status email-status-err"}, f"✗ {status[6:]}")
+        else:
+            status_el = ui.div()
+        return ui.div({"class": "email-summary-block"},
+            ui.div({"class": "email-summary-title"}, "📬 Email this summary to yourself"),
+            ui.div({"class": "email-summary-sub"},
+                "This is the auto-delivery workflow in action — in production, this summary "
+                "lands in the PS lead's inbox the moment a session ends. Try it: enter your "
+                "email and it arrives in seconds."),
+            ui.div({"class": "email-summary-row"},
+                ui.input_text("summary_email", None, placeholder="you@company.com"),
+                ui.input_action_button("email_send_btn", "Send it", class_="email-send-btn"),
+            ),
+            status_el,
+            ui.div({"class": "email-disclosure"},
+                "Your address is used only to send this summary."),
+        )
+
+    @reactive.effect
+    @reactive.event(input.email_send_btn)
+    def handle_email_send():
+        if email_status() == "sending":
+            return
+        if email_sends() >= 3:
+            email_status.set("error:Send limit reached for this session.")
+            return
+        addr = (input.summary_email() or "").strip()
+        if not EMAIL_RE.match(addr):
+            email_status.set("error:That doesn't look like a valid email address.")
+            return
+        body = email_summary() or build_email_summary(parse_summary(session_summary()))
+        if not body.strip():
+            email_status.set("error:No summary available to send yet.")
+            return
+        email_status.set("sending")
+        email_sends.set(email_sends() + 1)
+        email_task(addr, body)
+
+    @reactive.effect
+    def on_email_result():
+        result = email_task.result()
+        with reactive.isolate():
+            if email_status() != "sending":
+                return
+            if result["ok"]:
+                email_status.set(f"sent:{result['to']}")
+                log_to_airtable(user_id, input.customer_role() or "", "summary_emailed",
+                                question=result["to"])
+            else:
+                email_status.set(f"error:{result['detail']}")
 
     # ---- PS Summary ----
     @output
@@ -1440,6 +1847,18 @@ def server(input, output, session):
             ui.div({"class": "followup-label"}, "⚑ Follow-up Indicators"),
             ui.div({"class": "followup-content"}, followup),
         ))
+
+        risk = parsed.get("RISK_ASSESSMENT", "")
+        if risk:
+            rl = risk.lower()
+            if "critical" in rl:   sev = "critical"
+            elif "high" in rl:     sev = "high"
+            elif "low" in rl:      sev = "low"
+            else:                  sev = "none"
+            children.append(ui.div({"class": f"risk-block risk-{sev}"},
+                ui.div({"class": f"risk-label risk-label-{sev}"}, "🚩 Risk Assessment"),
+                ui.div({"class": "risk-content"}, risk),
+            ))
 
         tags_raw = parsed.get("TOPIC_TAGS", "")
         if tags_raw and tags_raw not in ("N/A", "—"):
@@ -1828,7 +2247,17 @@ def server(input, output, session):
                 return
 
             if check_unresolved_response(resp):
-                unresolved_log.set(unresolved_log() + [meta.get("user_text", "")[:120]])
+                q = meta.get("user_text", "")
+                unresolved_log.set(unresolved_log() + [q[:120]])
+                capture_unresolved(q)
+                log_to_airtable(user_id, current_role, "unresolved", q)
+                insights_tick.set(insights_tick() + 1)
+
+            if meta.get("is_scope_q"):
+                q = meta.get("user_text", "")
+                capture_scope_signal(q)
+                log_to_airtable(user_id, current_role, "scope_signal", q)
+                insights_tick.set(insights_tick() + 1)
 
             suggest_esc = tracker.update(meta.get("user_text", ""), resp)
             source      = extract_source_badge(resp)
@@ -2095,7 +2524,7 @@ def _friendly_error(detail):
 
 
 def parse_summary(raw):
-    fields = ["FOLLOW_UP_INDICATORS","DATE_TIME","CUSTOMER","OUTCOME","TOPIC_TAGS",
+    fields = ["FOLLOW_UP_INDICATORS","RISK_ASSESSMENT","DATE_TIME","CUSTOMER","OUTCOME","TOPIC_TAGS",
               "TOPICS_COVERED","GUIDANCE_PROVIDED","ESCALATION_SUMMARY",
               "UNRESOLVED_QUESTIONS","RESPONSE_FEEDBACK"]
     result, cur_key, cur_val = {}, None, []
@@ -2117,6 +2546,9 @@ def build_email_summary(parsed):
     fu = parsed.get("FOLLOW_UP_INDICATORS", "None identified.")
     if fu and fu != "None identified.":
         lines += ["FOLLOW-UP INDICATORS (Action Required)", "-"*40, fu, ""]
+    risk = parsed.get("RISK_ASSESSMENT", "")
+    if risk and not risk.lower().startswith("none"):
+        lines += ["RISK ASSESSMENT", "-"*40, risk, ""]
     for key, label in [
         ("DATE_TIME","Date / Time"),("CUSTOMER","Customer"),("OUTCOME","Outcome"),
         ("TOPIC_TAGS","Topics"),("TOPICS_COVERED","Topics Covered"),
@@ -2125,7 +2557,7 @@ def build_email_summary(parsed):
     ]:
         val = parsed.get(key, "")
         if val and val.strip(): lines += [f"{label}: {val}", ""]
-    lines += ["-"*55, "Generated by Posit Cloud Implementation Assistant"]
+    lines += ["-"*55, "Generated by Lemma — Posit Cloud Implementation Assistant"]
     return "\n".join(lines)
 
 

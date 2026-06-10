@@ -213,7 +213,7 @@ def generate_session_summary(
         from knowledge_base import TOPIC_TAGS
         tags_list = ", ".join(TOPIC_TAGS)
 
-        prompt = f"""You are generating a PS-facing session summary for a Posit Cloud implementation assistant.
+        prompt = f"""You are generating a PS-facing session summary for Lemma, a Posit Cloud implementation assistant.
 This summary is for Meredith Callahan (PS Lead), NOT the customer.
 Be factual, specific, and concise. Do not speculate about customer intent.
 
@@ -231,6 +231,7 @@ CONVERSATION TRANSCRIPT:
 Generate a session summary in EXACTLY this format. Every field is required.
 
 FOLLOW_UP_INDICATORS: [Specific signals PS should act on proactively. Be specific. If none, write "None identified."]
+RISK_ASSESSMENT: [Severity: Critical / High / Low / None — one sentence on the biggest customer-relationship or project risk evident in this session. Critical = will damage the relationship if not addressed immediately. High = PS will feel this within the week. Low = manageable but track it. If no risk indicators, write "None — no risk indicators in this session."]
 DATE_TIME: {session_start} — {session_end}
 CUSTOMER: {customer_name or 'Not provided'} | {customer_role or 'Not specified'}
 OUTCOME: [Resolved / Partially Resolved / Escalated]
