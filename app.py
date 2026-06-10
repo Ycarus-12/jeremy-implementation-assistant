@@ -1051,9 +1051,9 @@ function watchPanelForContent(paneId, tabName, contentSelector) {
     obs.observe(pane, { childList: true, subtree: true });
 }
 document.addEventListener('DOMContentLoaded', function() {
-    // Escalation panel: switch when a handoff entry appears
-    watchPanelForContent('pane-escalation', 'escalation', '.handoff-entry');
-    // Summary panel: switch when the generated summary header appears
+    // Summary panel: switch when the generated summary header appears.
+    // (Escalation tab is switched server-side via on_flushed, after its
+    // handoff entry has rendered — see on_handoff_result.)
     watchPanelForContent('pane-summary', 'summary', '.summary-header');
 });
 
@@ -2335,8 +2335,13 @@ def server(input, output, session):
                 is_system=False)
             log_to_airtable(user_id, input.customer_role() or "", "escalation",
                             response_length=len(handoff))
-            # Switch tab synchronously using the internal sync sender
-            session._send_message_sync({"custom": {"switch_tab": {"tab": "escalation"}}})
+
+        # Switch to the escalation tab AFTER this render flush completes, so the
+        # handoff entry is on-screen before we surface the tab. Registering the
+        # switch inside the same effect (pre-render) was switching to an empty pane.
+        async def _switch_after_flush():
+            await session.send_custom_message("switch_tab", {"tab": "escalation"})
+        session.on_flushed(_switch_after_flush, once=True)
 
     # ---- Send ----
     @reactive.effect
