@@ -2272,7 +2272,7 @@ def server(input, output, session):
         )
 
     @reactive.effect
-    async def on_handoff_result():
+    def on_handoff_result():
         result = handoff_task.result()
         with reactive.isolate():
             if not handoff_generating():
@@ -2288,9 +2288,8 @@ def server(input, output, session):
                 is_system=False)
             log_to_airtable(user_id, input.customer_role() or "", "escalation",
                             response_length=len(handoff))
-        # Switch to escalation tab — must be awaited (the original sync call
-        # produced an un-awaited coroutine and never actually switched tabs)
-        await session.send_custom_message("switch_tab", {"tab": "escalation"})
+            # Switch tab synchronously using the internal sync sender
+            session._send_message_sync({"custom": {"switch_tab": {"tab": "escalation"}}})
 
     # ---- Send ----
     @reactive.effect
