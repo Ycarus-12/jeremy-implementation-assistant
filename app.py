@@ -105,7 +105,7 @@ EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 def send_summary_email(to_addr: str, summary_text: str) -> tuple:
     """Send the email-ready summary via Resend. Returns (ok, detail)."""
     try:
-        import urllib.request, json as _json
+        import httpx
         api_key = os.environ.get("RESEND_API_KEY", "")
         from_addr = os.environ.get("RESEND_FROM", "")
         if not api_key or not from_addr:
@@ -119,30 +119,26 @@ def send_summary_email(to_addr: str, summary_text: str) -> tuple:
             "Sent by Lemma, the Posit Cloud implementation assistant — a proof-of-concept "
             "built by Jeremy Coates. Your address was used only to send this summary.</p>"
         )
-        payload = _json.dumps({
-            "from": from_addr,
-            "to": [to_addr],
-            "subject": "Your PS Session Summary — from Lemma",
-            "text": summary_text,
-            "html": html_body,
-        }).encode()
-        req = urllib.request.Request(
-            "https://api.resend.com/emails", data=payload,
-            headers={"Authorization": f"Bearer {api_key}",
-                     "Content-Type": "application/json"},
-            method="POST",
+        resp = httpx.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "lemma-implementation-assistant/1.0",
+            },
+            json={
+                "from": from_addr,
+                "to": [to_addr],
+                "subject": "Your PS Session Summary — from Lemma",
+                "text": summary_text,
+                "html": html_body,
+            },
+            timeout=10.0,
         )
-        urllib.request.urlopen(req, timeout=10)
-        return True, ""
+        if resp.status_code in (200, 201):
+            return True, ""
+        return False, f"Send failed ({resp.status_code}): {resp.text[:300]}"
     except Exception as ex:
-        # Surface Resend's actual error message, not just the HTTP status
-        try:
-            import urllib.error
-            if isinstance(ex, urllib.error.HTTPError):
-                body = ex.read().decode(errors="replace")[:300]
-                return False, f"Send failed ({ex.code}): {body}"
-        except Exception:
-            pass
         return False, f"Send failed: {str(ex)[:200]}"
 
 
