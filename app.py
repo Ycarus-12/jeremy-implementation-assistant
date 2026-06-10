@@ -1037,6 +1037,26 @@ function switchTab(tab) {
     if (pane) pane.classList.add('active');
 }
 
+// Auto-switch when a panel receives real content. This is independent of any
+// server->client message timing: when the escalation panel gets a handoff
+// entry, or the summary panel gets a generated summary, we surface that tab.
+function watchPanelForContent(paneId, tabName, contentSelector) {
+    var pane = document.getElementById(paneId);
+    if (!pane) return;
+    var obs = new MutationObserver(function() {
+        if (pane.querySelector(contentSelector)) {
+            switchTab(tabName);
+        }
+    });
+    obs.observe(pane, { childList: true, subtree: true });
+}
+document.addEventListener('DOMContentLoaded', function() {
+    // Escalation panel: switch when a handoff entry appears
+    watchPanelForContent('pane-escalation', 'escalation', '.handoff-entry');
+    // Summary panel: switch when the generated summary header appears
+    watchPanelForContent('pane-summary', 'summary', '.summary-header');
+});
+
 // Collapsible sidebar task sections
 function toggleTaskSection(id) {
     var list = document.getElementById(id);
@@ -1140,11 +1160,20 @@ function launchDemo(name, role, msg) {
     if (window.Shiny) Shiny.setInputValue('demo_launch', {name: name, role: role, message: msg}, {priority: 'event'});
 }
 
-// Shiny custom message handler — switches tab from server side
-if (window.Shiny) {
-    Shiny.addCustomMessageHandler('switch_tab', function(data) {
-        switchTab(data.tab);
-    });
+// Shiny custom message handler — switches tab from server side.
+// Register AFTER Shiny connects; registering during initial script parse
+// can attach to a not-yet-ready Shiny instance and the handler never fires.
+function registerSwitchTabHandler() {
+    if (window.Shiny && Shiny.addCustomMessageHandler) {
+        Shiny.addCustomMessageHandler('switch_tab', function(data) {
+            switchTab(data.tab);
+        });
+    }
+}
+if (window.Shiny && Shiny.addCustomMessageHandler) {
+    registerSwitchTabHandler();
+} else {
+    document.addEventListener('shiny:connected', registerSwitchTabHandler);
 }
 """
 
