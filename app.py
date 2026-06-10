@@ -135,6 +135,14 @@ def send_summary_email(to_addr: str, summary_text: str) -> tuple:
         urllib.request.urlopen(req, timeout=10)
         return True, ""
     except Exception as ex:
+        # Surface Resend's actual error message, not just the HTTP status
+        try:
+            import urllib.error
+            if isinstance(ex, urllib.error.HTTPError):
+                body = ex.read().decode(errors="replace")[:300]
+                return False, f"Send failed ({ex.code}): {body}"
+        except Exception:
+            pass
         return False, f"Send failed: {str(ex)[:200]}"
 
 
