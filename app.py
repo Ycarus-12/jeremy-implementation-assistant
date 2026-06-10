@@ -102,6 +102,124 @@ def log_to_airtable(user_id: str, role: str, event_type: str,
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 
+def _build_email_html(summary_text: str) -> str:
+    """
+    Render a branded, email-client-safe HTML summary from the parsed fields.
+    Table-based layout with inline styles only — no flexbox, no external CSS,
+    no <style> blocks (many clients strip them).
+    """
+    parsed = parse_summary(summary_text)
+
+    def esc(s):
+        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    NAVY, BLUE, INK, MUT, LINE, BG = "#1C2333", "#447099", "#1C2333", "#6B7A99", "#E2E6EF", "#F4F6F9"
+
+    # Risk badge color
+    risk = parsed.get("RISK_ASSESSMENT", "")
+    rl = risk.lower()
+    if "critical" in rl:   r_bg, r_fg, r_lbl = "#FFF0F0", "#C62828", "CRITICAL"
+    elif "high" in rl:     r_bg, r_fg, r_lbl = "#FFF3E0", "#E65100", "HIGH"
+    elif "low" in rl:      r_bg, r_fg, r_lbl = "#EEF4FA", "#355880", "LOW"
+    else:                  r_bg, r_fg, r_lbl = "#F0FBF0", "#2E7D32", "NONE"
+
+    # Outcome color
+    outcome = parsed.get("OUTCOME", "—")
+    ol = outcome.lower()
+    o_fg = "#C62828" if "escalat" in ol else ("#E65100" if "partial" in ol else ("#2E7D32" if "resolved" in ol else INK))
+
+    def field_row(label, value, value_color=INK):
+        if not value or not value.strip():
+            return ""
+        return f"""
+        <tr>
+          <td style="padding:10px 0;border-bottom:1px solid {LINE};">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:{MUT};margin-bottom:3px;">{esc(label)}</div>
+            <div style="font-size:14px;color:{value_color};line-height:1.55;">{esc(value)}</div>
+          </td>
+        </tr>"""
+
+    followup = parsed.get("FOLLOW_UP_INDICATORS", "None identified.")
+    followup_block = ""
+    if followup and followup.strip().lower() != "none identified.":
+        followup_block = f"""
+        <tr><td style="padding:0 0 16px 0;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF8E1;border-left:4px solid #F57C00;border-radius:0 6px 6px 0;">
+            <tr><td style="padding:12px 14px;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#E65100;margin-bottom:4px;">⚑ Follow-up Indicators — Action Required</div>
+              <div style="font-size:14px;color:#3E2723;line-height:1.55;">{esc(followup)}</div>
+            </td></tr>
+          </table>
+        </td></tr>"""
+
+    risk_block = ""
+    if risk and risk.strip():
+        risk_block = f"""
+        <tr><td style="padding:0 0 16px 0;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:{r_bg};border-left:4px solid {r_fg};border-radius:0 6px 6px 0;">
+            <tr><td style="padding:12px 14px;">
+              <div style="margin-bottom:4px;">
+                <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:{r_fg};">🚩 Risk Assessment</span>
+                <span style="display:inline-block;margin-left:8px;background:{r_fg};color:#fff;font-size:9px;font-weight:700;letter-spacing:0.06em;padding:2px 8px;border-radius:10px;vertical-align:middle;">{r_lbl}</span>
+              </div>
+              <div style="font-size:14px;color:{INK};line-height:1.55;">{esc(risk)}</div>
+            </td></tr>
+          </table>
+        </td></tr>"""
+
+    return f"""<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:{BG};">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:{BG};padding:24px 12px;">
+<tr><td align="center">
+  <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(28,35,51,0.08);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+
+    <!-- Header -->
+    <tr><td style="background:{NAVY};padding:22px 28px;border-bottom:3px solid {BLUE};">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:{BLUE};">Lemma · Posit Cloud</div>
+      <div style="font-size:19px;font-weight:600;color:#E8EDF5;margin-top:2px;">PS Session Summary</div>
+      <div style="font-size:12px;color:#9BB4D0;margin-top:3px;">State University Research Computing</div>
+    </td></tr>
+
+    <!-- Outcome strip -->
+    <tr><td style="padding:16px 28px 0 28px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="font-size:13px;color:{MUT};">{esc(parsed.get('DATE_TIME','—'))}</td>
+          <td align="right"><span style="font-size:13px;font-weight:700;color:{o_fg};">{esc(outcome)}</span></td>
+        </tr>
+      </table>
+      <div style="height:1px;background:{LINE};margin-top:14px;"></div>
+    </td></tr>
+
+    <!-- Body -->
+    <tr><td style="padding:18px 28px 8px 28px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        {followup_block}
+        {risk_block}
+        {field_row('Customer', parsed.get('CUSTOMER'))}
+        {field_row('Topics Covered', parsed.get('TOPICS_COVERED'))}
+        {field_row('Guidance Provided', parsed.get('GUIDANCE_PROVIDED'))}
+        {field_row('Escalation Summary', parsed.get('ESCALATION_SUMMARY') if (parsed.get('ESCALATION_SUMMARY','').strip() not in ('','N/A')) else '')}
+        {field_row('Unresolved Questions', parsed.get('UNRESOLVED_QUESTIONS') if (parsed.get('UNRESOLVED_QUESTIONS','').strip().lower() not in ('','none')) else '')}
+      </table>
+    </td></tr>
+
+    <!-- Footer -->
+    <tr><td style="background:{BG};padding:16px 28px;border-top:1px solid {LINE};">
+      <div style="font-size:12px;color:{MUT};line-height:1.5;">
+        Generated by <strong style="color:{INK};">Lemma</strong> — a proof-of-concept implementation
+        assistant built by Jeremy Coates. In production, this lands in the PS lead's inbox automatically
+        the moment a session ends.
+      </div>
+      <div style="font-size:11px;color:#9BA8BF;margin-top:8px;">Your address was used only to send this summary.</div>
+    </td></tr>
+
+  </table>
+</td></tr>
+</table>
+</body></html>"""
+
+
 def send_summary_email(to_addr: str, summary_text: str) -> tuple:
     """Send the email-ready summary via Resend. Returns (ok, detail)."""
     try:
@@ -110,15 +228,7 @@ def send_summary_email(to_addr: str, summary_text: str) -> tuple:
         from_addr = os.environ.get("RESEND_FROM", "")
         if not api_key or not from_addr:
             return False, "Email delivery is not configured on this deployment."
-        html_body = (
-            '<div style="font-family:monospace;white-space:pre-wrap;'
-            'font-size:13px;color:#1C2333;line-height:1.6;">'
-            + summary_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            + "</div>"
-            '<p style="font-family:sans-serif;font-size:12px;color:#6B7A99;">'
-            "Sent by Lemma, the Posit Cloud implementation assistant — a proof-of-concept "
-            "built by Jeremy Coates. Your address was used only to send this summary.</p>"
-        )
+        html_body = _build_email_html(summary_text)
         resp = httpx.post(
             "https://api.resend.com/emails",
             headers={
