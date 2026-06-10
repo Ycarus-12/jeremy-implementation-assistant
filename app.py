@@ -612,7 +612,10 @@ body {
 /* Input area */
 .input-area { border-top: 1px solid #E2E6EF; background: #FFFFFF; padding: 0.85rem 1.1rem; flex-shrink: 0; }
 .input-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+.input-row > .shiny-input-container { flex: 1; margin-bottom: 0 !important; }
+.input-row .shiny-input-container > label { display: none; }
 .input-row textarea {
+    width: 100%;
     flex: 1; border: 1px solid #CBD2E0; border-radius: 8px;
     padding: 0.55rem 0.75rem; font-size: 0.845rem;
     font-family: 'IBM Plex Sans', sans-serif; resize: none;
@@ -991,13 +994,28 @@ select.form-control { height: 34px !important; }
 # JS — minimal, no DOM mutation, no insert_ui
 # ===========================================================================
 JS = """
-// Enter to send
+// Enter to send — commit the textarea value to Shiny BEFORE clicking send.
+// input_text_area updates on the 'change' event (fires on blur), so pressing
+// Enter while focused would otherwise send a stale/truncated value. We
+// dispatch a change event first to force the full value through.
 document.addEventListener('keydown', function(e) {
     if (e.target.id === 'user_input' && e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        document.getElementById('send_btn').click();
+        e.target.dispatchEvent(new Event('change', { bubbles: true }));
+        setTimeout(function() {
+            document.getElementById('send_btn').click();
+        }, 30);
     }
 });
+
+// Also commit on the Send button click (covers mouse users who never blur)
+document.addEventListener('click', function(e) {
+    var btn = e.target.closest && e.target.closest('#send_btn');
+    if (btn) {
+        var ta = document.getElementById('user_input');
+        if (ta) ta.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+}, true);  // capture phase — runs before Shiny's click handler
 
 // Auto-scroll chat window
 const chatObs = new MutationObserver(function() {
@@ -1477,9 +1495,9 @@ app_ui = ui.page_fixed(
             ),
             ui.div({"class": "input-area"},
                 ui.div({"class": "input-row"},
-                    ui.tags.textarea({"id": "user_input",
-                                      "placeholder": "Ask a question or describe what you are trying to do…",
-                                      "rows": "2"}),
+                    ui.input_text_area("user_input", None,
+                        placeholder="Ask a question or describe what you are trying to do…",
+                        rows=2, resize="none"),
                     ui.input_action_button("send_btn", "Send", class_="send-btn"),
                 ),
                 ui.div({"class": "input-hint"},
