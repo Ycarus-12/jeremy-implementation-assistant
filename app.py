@@ -22,6 +22,9 @@ from api import (
 from system_prompt import build_system_prompt
 from knowledge_base import get_sidebar_tasks
 
+# Build stamp — bump on every deploy; visible proof of which code is live
+BUILD_ID = "2026-06-10-r8"
+
 # ===========================================================================
 # Rate limiting — protects the live API key on a publicly shared demo
 # ===========================================================================
@@ -2367,6 +2370,11 @@ def server(input, output, session):
         if not started():
             started.set(True)
             start_ts.set(datetime.now().strftime("%Y-%m-%d %H:%M"))
+            # Boot diagnostic: proves which build is live AND whether the
+            # DEPLOYED api.py's escalation check matches the canonical phrase.
+            _esc_ok = check_explicit_escalation("sso isn't working, i want to escalate")
+            log_to_airtable(user_id, "", "DEBUG_boot",
+                            question=f"build={BUILD_ID}, esc_check={_esc_ok}")
 
         current_role = input.customer_role() or detect_role(user_text) or ""
 
