@@ -23,7 +23,7 @@ from system_prompt import build_system_prompt
 from knowledge_base import get_sidebar_tasks
 
 # Build stamp — bump on every deploy; visible proof of which code is live
-BUILD_ID = "2026-06-10-r8"
+BUILD_ID = "2026-06-10-r9"
 
 # ===========================================================================
 # Rate limiting — protects the live API key on a publicly shared demo
@@ -2315,8 +2315,6 @@ def server(input, output, session):
         messages.set([{**m, "scope_choice": False, "suggest_escalation": False} for m in messages()])
         handoff_generating.set(True)
         add_msg("assistant", "Generating a handoff summary for Meredith Callahan…", is_system=True)
-        log_to_airtable(user_id, input.customer_role() or "", "DEBUG_escalate_start",
-                        question=f"msgs={len(real_msgs())}")
         handoff_task(
             real_msgs(),
             input.customer_name() or "Not provided",
@@ -2326,8 +2324,6 @@ def server(input, output, session):
     @reactive.effect
     def on_handoff_result():
         result = handoff_task.result()
-        log_to_airtable(user_id, "", "DEBUG_handoff_effect_fired",
-                        question=f"gen={handoff_generating()}, textlen={len(result.get('text','')) if result else 'NORESULT'}")
         with reactive.isolate():
             if not handoff_generating():
                 return
@@ -2336,8 +2332,6 @@ def server(input, output, session):
             ts  = datetime.now().strftime("%H:%M")
             eid = len(handoff_entries()) + 1
             handoff_entries.set(handoff_entries() + [{"id": eid, "text": handoff, "ts": ts}])
-            log_to_airtable(user_id, "", "DEBUG_entry_appended",
-                            question=f"total_entries={len(handoff_entries())}")
             add_msg("assistant",
                 "Here is a summary you can share with Meredith Callahan so she can pick up right where we left off:\n\n"
                 "---\n**HANDOFF SUMMARY FOR MEREDITH CALLAHAN**\n\n" + handoff,
@@ -2370,11 +2364,6 @@ def server(input, output, session):
         if not started():
             started.set(True)
             start_ts.set(datetime.now().strftime("%Y-%m-%d %H:%M"))
-            # Boot diagnostic: proves which build is live AND whether the
-            # DEPLOYED api.py's escalation check matches the canonical phrase.
-            _esc_ok = check_explicit_escalation("sso isn't working, i want to escalate")
-            log_to_airtable(user_id, "", "DEBUG_boot",
-                            question=f"build={BUILD_ID}, esc_check={_esc_ok}")
 
         current_role = input.customer_role() or detect_role(user_text) or ""
 
@@ -2439,6 +2428,13 @@ def server(input, output, session):
                 resp = resp.replace("TRIGGER_SESSION_END", "").strip()
                 add_msg("assistant", resp, source_badge=extract_source_badge(resp))
                 _close_session(current_role, natural_language=True)
+                return
+
+            if "TRIGGER_ESCALATION" in resp:
+                resp = resp.replace("TRIGGER_ESCALATION", "").strip()
+                if resp:
+                    add_msg("assistant", resp, source_badge=extract_source_badge(resp))
+                _do_escalate()
                 return
 
             if check_unresolved_response(resp):

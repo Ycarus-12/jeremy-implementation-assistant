@@ -259,7 +259,18 @@ Keep under 400 words. No preamble or closing remarks."""
 
 def check_explicit_escalation(user_message: str) -> bool:
     msg = user_message.lower()
-    return any(phrase in msg for phrase in ESCALATION_PHRASES)
+    if any(phrase in msg for phrase in ESCALATION_PHRASES):
+        return True
+    # Imperative forms the phrase list misses: "escalate NOW!", "Escalate.",
+    # "escalate this immediately", "please just escalate it"
+    import re
+    if re.search(r"^\W*escalate\b", msg):                          # message starts with it
+        return True
+    if re.search(r"\bescalate\b[\s,!.]*(now|asap|immediately|it|this|please)\b", msg):
+        return True
+    if re.search(r"\b(just|please|need to|have to|gotta)\s+escalate\b", msg):
+        return True
+    return False
 
 
 def check_resolution_signal(user_message: str) -> bool:
