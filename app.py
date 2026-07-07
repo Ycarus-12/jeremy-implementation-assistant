@@ -3,6 +3,7 @@
 from shiny import App, reactive, render, ui
 from datetime import datetime, date, timezone
 import asyncio
+import html
 import os
 import re
 import threading
@@ -1413,7 +1414,7 @@ INSTRUCTIONS_MODAL_HTML = ui.div(
 
         ),
         ui.div({"class": "modal-footer"},
-            "Questions about the implementation? Contact Meredith Callahan directly: meredith.flaring453@passmail.net"
+            "Questions about the implementation? Contact Meredith Callahan directly: meredith.callahan@example.com"
         ),
     ),
 )
@@ -1515,8 +1516,8 @@ app_ui = ui.page_fixed(
             ui.div({"class": "sidebar-label"}, "Contact PS Lead"),
             ui.div({"class": "contact-block"},
                 ui.span({"class": "contact-name"}, "Meredith Callahan"),
-                ui.tags.a("meredith.flaring453@passmail.net",
-                          {"href": "mailto:meredith.flaring453@passmail.net"}),
+                ui.tags.a("meredith.callahan@example.com",
+                          {"href": "mailto:meredith.callahan@example.com"}),
             ),
         ),
 
@@ -1864,7 +1865,14 @@ def server(input, output, session):
             av_cls   = "avatar avatar-user" if is_user else "avatar avatar-ai"
             msg_id   = m.get("id", "")
 
-            inner = [ui.HTML(format_message(m["content"]))]
+            # User content is rendered as escaped plain text (no markdown) so
+            # pasted angle brackets / code can't break layout or inject HTML.
+            # Assistant output keeps markdown formatting.
+            if is_user:
+                _safe = html.escape(m["content"]).replace("\n", "<br>")
+                inner = [ui.HTML(f"<p>{_safe}</p>")]
+            else:
+                inner = [ui.HTML(format_message(m["content"]))]
 
             if m.get("scope_choice"):
                 inner.append(ui.div({"class": "scope-choice"},
@@ -2722,11 +2730,15 @@ def extract_source_badge(text):
 
 
 def _friendly_error(detail):
+    # Log the raw detail server-side for debugging; never surface it in the UI.
+    try:
+        print(f"[lemma] chat error: {detail}", flush=True)
+    except Exception:
+        pass
     return (
         "Something went wrong connecting to the assistant. Please try again in a moment.\n\n"
         "If this keeps happening, contact your PS lead directly:\n"
-        "**Meredith Callahan** — meredith.flaring453@passmail.net\n\n"
-        f"_(Technical detail: {detail[:200]})_"
+        "**Meredith Callahan** — meredith.callahan@example.com"
     )
 
 
